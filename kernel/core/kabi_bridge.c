@@ -3,7 +3,7 @@
 #include "kernel_api.h"
 #include "task.h"
 #include "../cpu/paging.h"
-#include "tests/core_tests/core_test_v1.h"
+#include "tests/core_tests/core_test64_v1.h"
 #include "tests/unit/test_paging.h"
 #include "tests/stress/test_stress.h"
 #include "../../libc/mem.h"
@@ -368,7 +368,7 @@ void kabi_debug_run_test(uint32_t test_id, const char *args) {
             }
             break;
         case KABI_DEBUG_TEST_CORE:
-            run_core_test_v1();
+            run_core_test64_v1();
             break;
         default:
             kprint("[VALIDATE FAIL] kabi_debug_run_test: unknown test_id ");

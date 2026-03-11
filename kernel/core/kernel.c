@@ -86,9 +86,7 @@ void kernel_main(void) {
 }
 
 void panic(char *message) {
-#ifndef ARCH_X86_64
     ktrace_panic_snapshot(message);
-#endif
 
     // Emergency visual indication: prefer framebuffer if available, else VGA.
     if (boot_fb_info.present) {

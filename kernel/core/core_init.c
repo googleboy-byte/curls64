@@ -26,10 +26,8 @@ void core_init() {
     init_paging();
 #endif
     
-#ifndef ARCH_X86_64
     /* Initialize ktrace after paging */
     ktrace_init();
-#endif
     
     cpu_init(0);
 

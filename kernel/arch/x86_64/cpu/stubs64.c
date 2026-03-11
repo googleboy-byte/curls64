@@ -1,8 +1,6 @@
 #include <stdint.h>
 
 // Stubs for symbols not yet ported or needed for IDT verification
-void ktrace_event(int event, uint64_t data) {}
-void ktrace_panic_snapshot(const char *msg) {}
 void pipe_add_writer(void *pipe) {}
 void pipe_add_reader(void *pipe) {}
 void pipe_remove_writer(void *pipe) {}
@@ -14,7 +12,6 @@ void print_test_menu() {}
 void handle_test_command(int c) {}
 void print_stress_menu() {}
 void handle_stress_command(int c) {}
-void run_core_test_v1(int c) {}
 
 // Phase 6: Syscall dispatch stubs for unported subsystems
 // These return -1 (error) to indicate "not implemented"

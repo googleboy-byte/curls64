@@ -185,7 +185,14 @@ mmu_context_t *mmu_clone_user(mmu_context_t *src) {
 void mmu_init(void) {
     // Initial x64 boot-time identity map is already set up by ASM trampoline.
     // We will eventually replace it with a clean kernel address space here.
-    kprint("  - x86_64 MMU implementation active\n");
+
+    // Enforce Write Protect (WP) bit in CR0
+    uint64_t cr0;
+    asm volatile("mov %%cr0, %0" : "=r"(cr0));
+    cr0 |= (1ULL << 16); 
+    asm volatile("mov %0, %%cr0" : : "r"(cr0));
+
+    kprint("  - x86_64 MMU implementation active (CR0.WP enabled)\n");
 }
 
 /* Compatibility wrapper for get_page used by common code (e.g. kmalloc) */

@@ -112,7 +112,13 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                kernel/modules/sysmon/sysmon_top.o64 \
                kernel/proc/exec.o64 \
                kernel/fs/elf/elf_load.o64 \
-               kernel/fs/elf/elf_check.o64 \
+                kernel/fs/elf/elf_check.o64 \
+                kernel/fs/fat32/fat32_bpb.o64 \
+                kernel/fs/fat32/fat32_file.o64 \
+                kernel/fs/fat32/fat32_ls.o64 \
+                kernel/fs/fat32/fat32_fat.o64 \
+                kernel/ktrace/ktrace.o64 \
+               kernel/core/tests/core_tests/core_test64_v1.o64 \
                libc/mem.o64 \
                libc/string.o64 \
                libc/kheap.o64
@@ -245,17 +251,17 @@ run-grub-nox: iso $(IMG) $(FLASH_IMG) | $(LOG_DIR)
 	-d guest_errors,int,cpu_reset -D $(LOG_DIR)/qemu-grub-qemu-nox.log 2>&1 | tee $(LOG_DIR)/qemu-grub-serial-nox.log
 
 # Run minimal 64-bit verification kernel
-run-grub64-verify: $(BUILD_DIR)/kernel64_verify.elf | $(LOG_DIR) $(ISO_DIR)
+run-grub64-verify: $(BUILD_DIR)/kernel64_verify.elf $(IMG) | $(LOG_DIR) $(ISO_DIR)
 	cp $(BUILD_DIR)/kernel64_verify.elf $(ISO_DIR)/boot/kernel.elf
 	printf 'set timeout=0\nset default=0\nmenuentry \"Curls x64 Verify\" {\n  multiboot2 /boot/kernel.elf\n  boot\n}\n' > $(ISO_DIR)/boot/grub/grub.cfg
 	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
-	qemu-system-x86_64 -cdrom $(ISO_IMG) -boot d -m 256 -nographic -serial file:$(LOG_DIR)/qemu-verify-serial.log
+	qemu-system-x86_64 -cdrom $(ISO_IMG) -hda $(IMG) -boot d -m 256 -nographic -serial file:$(LOG_DIR)/qemu-verify-serial.log
 
-run-grub64-verify-debug: build/kernel64_verify.elf | $(LOG_DIR) $(ISO_DIR)
+run-grub64-verify-debug: build/kernel64_verify.elf $(IMG) | $(LOG_DIR) $(ISO_DIR)
 	cp $(BUILD_DIR)/kernel64_verify.elf $(ISO_DIR)/boot/kernel.elf
 	printf 'set timeout=0\nset default=0\nmenuentry \"Curls x64 Verify Debug\" {\n  multiboot2 /boot/kernel.elf\n  boot\n}\n' > $(ISO_DIR)/boot/grub/grub.cfg
 	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
-	qemu-system-x86_64 -cdrom $(ISO_IMG) -boot d -m 256 -serial mon:stdio -nographic -d int,cpu_reset -D $(LOG_DIR)/qemu-verify-debug.log
+	qemu-system-x86_64 -cdrom $(ISO_IMG) -hda $(IMG) -boot d -m 256 -serial mon:stdio -nographic -d int,cpu_reset -D $(LOG_DIR)/qemu-verify-debug.log
 
 live-usb: iso
 	sudo FORCE=$(FORCE) bash scripts/make_live_usb.sh $(ISO_IMG)

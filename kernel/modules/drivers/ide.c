@@ -22,7 +22,7 @@
 #define IDE_CMD_CACHE_FLUSH 0xE7
 
 static int ide_wait_bsy() {
-    uint32_t timeout = 1000000;
+    uint32_t timeout = 10000000;
     while (timeout--) {
         if (!(port_byte_in(IDE_STATUS) & IDE_STATUS_BSY)) return 0;
     }
@@ -30,7 +30,7 @@ static int ide_wait_bsy() {
 }
 
 static int ide_wait_drq() {
-    uint32_t timeout = 1000000;
+    uint32_t timeout = 10000000;
     while (timeout--) {
         uint8_t s = port_byte_in(IDE_STATUS);
         if (s & IDE_STATUS_ERR) return -1;

@@ -213,8 +213,15 @@ void init_paging() {
         }
     }
 
-    kprint("  - Switching to 64-bit kernel context...\n");
+    kprint("  - Switching to 64-bit kernel context (CR0.WP enforcement)...\n");
     mmu_switch(kernel_directory);
+    
+    // Enforce Write Protect (WP) bit in CR0
+    uint64_t cr0;
+    asm volatile("mov %%cr0, %0" : "=r"(cr0));
+    cr0 |= (1ULL << 16); 
+    asm volatile("mov %0, %%cr0" : : "r"(cr0));
+
     mmu_high_active = 1;
     kernel_directory->pml4_virt = (mmu_table_t*)((uintptr_t)kernel_directory->pml4_virt + PHYSMAP_BASE);
     kernel_directory = (mmu_context_t*)((uintptr_t)kernel_directory + PHYSMAP_BASE);
