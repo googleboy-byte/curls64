@@ -13,7 +13,7 @@
 static void syscall_handler(registers_t *regs) {
     assert_on_kstack(regs);
     
-    uint32_t syscall_num = regs->eax;
+    uint32_t syscall_num = REGS_SYSNO(regs);
     KTRACE1(KTRACE_SYSCALL_ENTER, syscall_num);
     
     /* ── Legacy Syscalls (0–11) ────────────────────────────────── */
@@ -26,100 +26,100 @@ static void syscall_handler(registers_t *regs) {
         char s[10]; int_to_ascii(getpid(), s); kprint(s); kprint("\n");
         while(1) { asm volatile("sti; hlt"); }
     } else if (syscall_num == SYS_PRINT) {
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        kprint((char *)regs->ebx);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        kprint((char *)REGS_ARG1(regs));
     } else if (syscall_num == SYS_OPEN) {
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        regs->eax = open((char *)regs->ebx, regs->ecx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = open((char *)REGS_ARG1(regs), REGS_ARG2(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == SYS_CLOSE) {
-        UABI_VALIDATE_FD(regs->ebx, syscall_num);
-        regs->eax = close(regs->ebx);
+        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = close(REGS_ARG1(regs));
     } else if (syscall_num == SYS_READ) {
-        UABI_VALIDATE_FD(regs->ebx, syscall_num);
-        UABI_VALIDATE_PTR(regs->ecx, syscall_num);
-        UABI_VALIDATE_POSITIVE(regs->edx, syscall_num);
-        regs->eax = read(regs->ebx, (char *)regs->ecx, regs->edx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
+        UABI_VALIDATE_POSITIVE(REGS_ARG3(regs), syscall_num);
+        REGS_SYSNO(regs) = read(REGS_ARG1(regs), (char *)REGS_ARG2(regs), REGS_ARG3(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == SYS_WRITE) {
-        UABI_VALIDATE_FD(regs->ebx, syscall_num);
-        UABI_VALIDATE_PTR(regs->ecx, syscall_num);
-        UABI_VALIDATE_POSITIVE(regs->edx, syscall_num);
-        regs->eax = write(regs->ebx, (char *)regs->ecx, regs->edx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
+        UABI_VALIDATE_POSITIVE(REGS_ARG3(regs), syscall_num);
+        REGS_SYSNO(regs) = write(REGS_ARG1(regs), (char *)REGS_ARG2(regs), REGS_ARG3(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == SYS_SEEK) {
-        UABI_VALIDATE_FD(regs->ebx, syscall_num);
-        UABI_VALIDATE_RANGE(regs->edx, 0, 2, syscall_num);
-        regs->eax = seek(regs->ebx, regs->ecx, regs->edx);
+        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_RANGE(REGS_ARG3(regs), 0, 2, syscall_num);
+        REGS_SYSNO(regs) = seek(REGS_ARG1(regs), REGS_ARG2(regs), REGS_ARG3(regs));
     } else if (syscall_num == SYS_DUP) {
-        UABI_VALIDATE_FD(regs->ebx, syscall_num);
-        regs->eax = dup(regs->ebx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = dup(REGS_ARG1(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == SYS_DUP2) {
-        UABI_VALIDATE_FD(regs->ebx, syscall_num);
-        UABI_VALIDATE_FD(regs->ecx, syscall_num);
-        regs->eax = dup2(regs->ebx, regs->ecx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_FD(REGS_ARG2(regs), syscall_num);
+        REGS_SYSNO(regs) = dup2(REGS_ARG1(regs), REGS_ARG2(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == SYS_PIPE) {
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        regs->eax = pipe((int*)regs->ebx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = pipe((int*)REGS_ARG1(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == SYS_FORK) {
-        regs->eax = sys_fork(regs);
+        REGS_SYSNO(regs) = sys_fork(regs);
     } else if (syscall_num == SYS_EXECVE) {
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        regs->eax = sys_execve((const char *)regs->ebx, (char **)regs->ecx, regs);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = sys_execve((const char *)REGS_ARG1(regs), (char **)REGS_ARG2(regs), regs);
     }
 
     /* ── U-ABI v1 Syscalls (20–53) ────────────────────────────── */
 
     else if (syscall_num == 20) { /* UABI_OPEN */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        regs->eax = open((char *)regs->ebx, regs->ecx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = open((char *)REGS_ARG1(regs), REGS_ARG2(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == 21) { /* UABI_READ */
-        UABI_VALIDATE_FD(regs->ebx, syscall_num);
-        UABI_VALIDATE_PTR(regs->ecx, syscall_num);
-        UABI_VALIDATE_POSITIVE(regs->edx, syscall_num);
-        regs->eax = read(regs->ebx, (char *)regs->ecx, regs->edx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
+        UABI_VALIDATE_POSITIVE(REGS_ARG3(regs), syscall_num);
+        REGS_SYSNO(regs) = read(REGS_ARG1(regs), (char *)REGS_ARG2(regs), REGS_ARG3(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == 22) { /* UABI_WRITE */
-        UABI_VALIDATE_FD(regs->ebx, syscall_num);
-        UABI_VALIDATE_PTR(regs->ecx, syscall_num);
-        UABI_VALIDATE_POSITIVE(regs->edx, syscall_num);
-        regs->eax = write(regs->ebx, (char *)regs->ecx, regs->edx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
+        UABI_VALIDATE_POSITIVE(REGS_ARG3(regs), syscall_num);
+        REGS_SYSNO(regs) = write(REGS_ARG1(regs), (char *)REGS_ARG2(regs), REGS_ARG3(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == 23) { /* UABI_CLOSE */
-        UABI_VALIDATE_FD(regs->ebx, syscall_num);
-        regs->eax = close(regs->ebx);
+        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = close(REGS_ARG1(regs));
     } else if (syscall_num == 24) { /* UABI_READDIR */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        UABI_VALIDATE_PTR(regs->ecx, syscall_num);
-        UABI_VALIDATE_POSITIVE(regs->edx, syscall_num);
-        regs->eax = sys_readdir((const char *)regs->ebx, (void *)regs->ecx, regs->edx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
+        UABI_VALIDATE_POSITIVE(REGS_ARG3(regs), syscall_num);
+        REGS_SYSNO(regs) = sys_readdir((const char *)REGS_ARG1(regs), (void *)REGS_ARG2(regs), REGS_ARG3(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == 25) { /* UABI_GETCWD */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        UABI_VALIDATE_POSITIVE(regs->ecx, syscall_num);
-        regs->eax = sys_getcwd((char *)regs->ebx, regs->ecx);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_POSITIVE(REGS_ARG2(regs), syscall_num);
+        REGS_SYSNO(regs) = sys_getcwd((char *)REGS_ARG1(regs), REGS_ARG2(regs));
     } else if (syscall_num == 26) { /* UABI_CHDIR */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        regs->eax = sys_chdir((const char *)regs->ebx);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = sys_chdir((const char *)REGS_ARG1(regs));
     } else if (syscall_num == 27) { /* UABI_STAT */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        UABI_VALIDATE_PTR(regs->ecx, syscall_num);
-        regs->eax = sys_stat((const char *)regs->ebx, (void *)regs->ecx);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
+        REGS_SYSNO(regs) = sys_stat((const char *)REGS_ARG1(regs), (void *)REGS_ARG2(regs));
     } else if (syscall_num == 28) { /* UABI_LSEEK */
-        UABI_VALIDATE_FD(regs->ebx, syscall_num);
-        UABI_VALIDATE_RANGE(regs->edx, 0, 2, syscall_num);
-        regs->eax = seek(regs->ebx, regs->ecx, regs->edx);
+        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_RANGE(REGS_ARG3(regs), 0, 2, syscall_num);
+        REGS_SYSNO(regs) = seek(REGS_ARG1(regs), REGS_ARG2(regs), REGS_ARG3(regs));
     } else if (syscall_num == 30) { /* UABI_FORK */
-        regs->eax = sys_fork(regs);
+        REGS_SYSNO(regs) = sys_fork(regs);
     } else if (syscall_num == 31) { /* UABI_EXEC */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        regs->eax = sys_execve((const char *)regs->ebx, (char **)regs->ecx, regs);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = sys_execve((const char *)REGS_ARG1(regs), (char **)REGS_ARG2(regs), regs);
     } else if (syscall_num == 32) { /* UABI_EXIT */
-        current_task->exit_code = (int)regs->ebx;
+        current_task->exit_code = (int)REGS_ARG1(regs);
         if (kabi_debug_enabled()) {
             char s[16]; hex_to_ascii(current_task->id, s);
             kprint("[EXIT] PID 0x"); kprint(s);
@@ -129,88 +129,88 @@ static void syscall_handler(registers_t *regs) {
         schedule(regs);
         while(1) { asm volatile("sti; hlt"); }
     } else if (syscall_num == 33) { /* UABI_WAIT */
-        regs->eax = wait_for_children();
+        REGS_SYSNO(regs) = wait_for_children();
     } else if (syscall_num == 34) { /* UABI_GETPID */
-        regs->eax = getpid();
+        REGS_SYSNO(regs) = getpid();
     } else if (syscall_num == 35) { /* UABI_PIPE */
         extern int pipe(int fds[2]);
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        regs->eax = pipe((int *)regs->ebx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = pipe((int *)REGS_ARG1(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == 36) { /* UABI_DUP2 */
         extern int dup2(int oldfd, int newfd);
-        UABI_VALIDATE_FD(regs->ebx, syscall_num);
-        UABI_VALIDATE_FD(regs->ecx, syscall_num);
-        regs->eax = dup2(regs->ebx, regs->ecx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_FD(REGS_ARG2(regs), syscall_num);
+        REGS_SYSNO(regs) = dup2(REGS_ARG1(regs), REGS_ARG2(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == 37) { /* UABI_DUP */
         extern int dup(int oldfd);
-        UABI_VALIDATE_FD(regs->ebx, syscall_num);
-        regs->eax = dup(regs->ebx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = dup(REGS_ARG1(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == 40) { /* UABI_PRINT */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        kprint((char *)regs->ebx);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        kprint((char *)REGS_ARG1(regs));
     } else if (syscall_num == 41) { /* UABI_GETLINE */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        get_line((char *)regs->ebx);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        get_line((char *)REGS_ARG1(regs));
     } else if (syscall_num == 42) { /* UABI_CLEAR */
         extern void clear_screen();
         clear_screen();
     } else if (syscall_num == 43) { /* UABI_GETC */
         extern int sys_getchar(void);
-        regs->eax = sys_getchar();
+        REGS_SYSNO(regs) = sys_getchar();
     } else if (syscall_num == 44) { /* UABI_GOTOXY */
         extern void set_cursor_position(int col, int row);
-        UABI_VALIDATE_RANGE(regs->ebx, 0, 79, syscall_num);
-        UABI_VALIDATE_RANGE(regs->ecx, 0, 24, syscall_num);
-        set_cursor_position(regs->ebx, regs->ecx);
-        regs->eax = 0;
+        UABI_VALIDATE_RANGE(REGS_ARG1(regs), 0, 79, syscall_num);
+        UABI_VALIDATE_RANGE(REGS_ARG2(regs), 0, 24, syscall_num);
+        set_cursor_position(REGS_ARG1(regs), REGS_ARG2(regs));
+        REGS_SYSNO(regs) = 0;
     } else if (syscall_num == 45) { /* UABI_PS */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        UABI_VALIDATE_POSITIVE(regs->ecx, syscall_num);
-        regs->eax = sys_ps((void *)regs->ebx, regs->ecx);
-        UABI_VALIDATE_OUTPUT(regs->eax, syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_POSITIVE(REGS_ARG2(regs), syscall_num);
+        REGS_SYSNO(regs) = sys_ps((void *)REGS_ARG1(regs), REGS_ARG2(regs));
+        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == 46) { /* UABI_MEMSTAT */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        regs->eax = sys_memstat((void *)regs->ebx);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = sys_memstat((void *)REGS_ARG1(regs));
     } else if (syscall_num == 47) { /* UABI_SET_DEBUG */
         extern int kabi_debug_enabled();
         extern void kabi_set_debug(int enabled);
-        if (regs->ecx) { /* Query */
-            regs->eax = kabi_debug_enabled();
+        if (REGS_ARG2(regs)) { /* Query */
+            REGS_SYSNO(regs) = kabi_debug_enabled();
         } else { /* Set */
-            kabi_set_debug(regs->ebx);
-            regs->eax = 0;
+            kabi_set_debug(REGS_ARG1(regs));
+            REGS_SYSNO(regs) = 0;
         }
     } else if (syscall_num == 48) { /* UABI_KILL */
-        UABI_VALIDATE_POSITIVE(regs->ebx, syscall_num);
-        UABI_VALIDATE_RANGE(regs->ecx, 1, 31, syscall_num);
-        regs->eax = task_send_signal((int)regs->ebx, (int)regs->ecx);
+        UABI_VALIDATE_POSITIVE(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_RANGE(REGS_ARG2(regs), 1, 31, syscall_num);
+        REGS_SYSNO(regs) = task_send_signal((int)REGS_ARG1(regs), (int)REGS_ARG2(regs));
     } else if (syscall_num == 49) { /* UABI_SIGACTION */
-        int sig = (int)regs->ebx;
-        uint32_t handler = regs->ecx;
+        int sig = (int)REGS_ARG1(regs);
+        uint32_t handler = REGS_ARG2(regs);
         /* Only SIGTERM(15) and SIGINT(2) can have user handlers */
         if (sig == SIGKILL || sig == SIGCHLD) {
             kprint("[VALIDATE FAIL] syscall 49: cannot set handler for SIGKILL/SIGCHLD\n");
-            regs->eax = -1;
+            REGS_SYSNO(regs) = -1;
         } else {
             current_task->sigterm_handler = handler;
-            regs->eax = 0;
+            REGS_SYSNO(regs) = 0;
         }
     } else if (syscall_num == 50) { /* UABI_SIGRETURN */
         /* Restore user context saved before signal handler dispatch */
         if (current_task->in_signal) {
-            regs->eip = current_task->saved_eip;
-            regs->esp = current_task->saved_esp;
+            REGS_IP(regs) = current_task->saved_eip;
+            REGS_SP(regs) = current_task->saved_esp;
             current_task->in_signal = 0;
         }
-        regs->eax = 0;
+        REGS_SYSNO(regs) = 0;
     } else if (syscall_num == 51) { /* UABI_SLEEP */
-        uint32_t ms = regs->ebx;
+        uint32_t ms = REGS_ARG1(regs);
         if (ms == 0) {
             /* sleep(0): just yield to next task */
-            regs->eax = 0;
+            REGS_SYSNO(regs) = 0;
         } else {
             /* Timer runs at 100 Hz → 1 tick = 10 ms.
              * Round up so sleep(1) still waits at least 1 tick. */
@@ -219,33 +219,33 @@ static void syscall_handler(registers_t *regs) {
             uint32_t ticks = (ms + 9) / 10;
             sleepq_insert((task_t*)current_task, get_ticks() + ticks);
             current_task->state = TASK_WAITING;
-            regs->eax = 0;
+            REGS_SYSNO(regs) = 0;
             /* Release to scheduler so another task runs while we sleep */
             task_check_pending_signals(regs); /* honour any pending signal first */
             schedule(regs);
         }
     } else if (syscall_num == 52) { /* UABI_MKDIR */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        regs->eax = sys_mkdir((const char *)regs->ebx);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = sys_mkdir((const char *)REGS_ARG1(regs));
     } else if (syscall_num == 53) { /* UABI_UNLINK */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        regs->eax = sys_unlink((const char *)regs->ebx);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = sys_unlink((const char *)REGS_ARG1(regs));
     } else if (syscall_num == 54) { /* UABI_DEVINFO */
         extern int block_dev_get_count(void);
         extern kabi_block_device_t* block_dev_get_by_index(int index);
-        int index = (int)regs->ebx;
+        int index = (int)REGS_ARG1(regs);
         if (index == -1) {
             /* Return device count */
-            regs->eax = block_dev_get_count();
+            REGS_SYSNO(regs) = block_dev_get_count();
         } else {
-            UABI_VALIDATE_PTR(regs->ecx, syscall_num);
+            UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
             kabi_block_device_t *dev = block_dev_get_by_index(index);
             if (!dev) {
-                regs->eax = (uint32_t)(-2); /* ENOENT */
+                REGS_SYSNO(regs) = (uintptr_t)(-2); /* ENOENT */
             } else {
                 /* Copy info to userspace struct */
                 typedef struct { char name[32]; uint32_t sectors; uint32_t sector_size; int is_partition; int parent_dev; } uinfo_t;
-                uinfo_t *uinfo = (uinfo_t *)regs->ecx;
+                uinfo_t *uinfo = (uinfo_t *)REGS_ARG2(regs);
                 /* Copy name */
                 for (int i = 0; i < 31 && dev->name[i]; i++) {
                     uinfo->name[i] = dev->name[i];
@@ -255,14 +255,14 @@ static void syscall_handler(registers_t *regs) {
                 uinfo->sector_size = 512;
                 uinfo->is_partition = dev->is_partition;
                 uinfo->parent_dev = (int)dev->parent_dev;
-                regs->eax = 0;
+                REGS_SYSNO(regs) = 0;
             }
         }
     } else if (syscall_num == 55) { /* UABI_MOUNT */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        UABI_VALIDATE_PTR(regs->ecx, syscall_num);
-        const char *dev_name = (const char *)regs->ebx;
-        const char *mountpoint = (const char *)regs->ecx;
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
+        const char *dev_name = (const char *)REGS_ARG1(regs);
+        const char *mountpoint = (const char *)REGS_ARG2(regs);
 
         /* Resolve device by name */
         extern int block_dev_get_count(void);
@@ -287,28 +287,28 @@ static void syscall_handler(registers_t *regs) {
         }
 
         if (dev_id < 0) {
-            regs->eax = (uint32_t)(-2); /* ENOENT */
+            REGS_SYSNO(regs) = (uintptr_t)(-2); /* ENOENT */
         } else {
             extern int fat32_vfs_mount(uint32_t dev, const char *mountpoint);
-            regs->eax = fat32_vfs_mount(dev_id, mountpoint) == 0 ? 0 : (uint32_t)(-4);
+            REGS_SYSNO(regs) = fat32_vfs_mount(dev_id, mountpoint) == 0 ? 0 : (uintptr_t)(-4);
         }
     } else if (syscall_num == 56) { /* UABI_UMOUNT */
-        UABI_VALIDATE_PTR(regs->ebx, syscall_num);
-        regs->eax = sys_umount((const char *)regs->ebx);
+        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        REGS_SYSNO(regs) = sys_umount((const char *)REGS_ARG1(regs));
     } else {
         kprint("[VALIDATE FAIL] Unknown syscall: ");
         char ss[10];
         int_to_ascii(syscall_num, ss);
         kprint(ss);
         kprint("\n");
-        regs->eax = (uint32_t)(-1);
+        REGS_SYSNO(regs) = (uintptr_t)(-1);
     }
 
 syscall_done:
     /* Check for pending signals and inject trampoline if returning to Ring-3 */
     task_check_pending_signals(regs);
 
-    KTRACE2(KTRACE_SYSCALL_EXIT, syscall_num, regs->eax);
+    KTRACE2(KTRACE_SYSCALL_EXIT, syscall_num, REGS_SYSNO(regs));
 }
 
 void init_syscalls() {

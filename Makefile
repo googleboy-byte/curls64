@@ -90,6 +90,7 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                kernel/arch/x86_64/mmu/mmu.o64 \
                kernel/cpu/paging.o64 \
                kernel/arch/x86_64/cpu/interrupt64.o64 kernel/cpu/isr.o64 kernel/core/task.o64 kernel/cpu/ports.o64 kernel/cpu/timer.o64 kernel/cpu/idt.o64 kernel/arch/x86_64/cpu/stubs64.o64 \
+               kernel/core/syscall_dispatch.o64 \
                libc/mem.o64 \
                libc/string.o64 \
                libc/kheap.o64
