@@ -9,28 +9,30 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include <kernel/arch_types.h>
+
 /* --- Memory Management --- */
-void *kmalloc(uint32_t size, int align, uint32_t *phys);
+void *kmalloc(size_t size, int align, phys_addr_t *phys);
 void kfree(void *p);
 
 typedef struct {
-    uint32_t total_size;
-    uint32_t used_size;
-    uint32_t free_size;
-    uint32_t max_addr;
+    size_t   total_size;
+    size_t   used_size;
+    size_t   free_size;
+    virt_addr_t max_addr;
 } heap_stats_t;
 
 void get_heap_stats(heap_stats_t *stats);
 
 /* --- Output / Debugging --- */
-void kprint(char *c);
+void kprint(const char *c);
 void kprint_at(char *c, int col, int row);
 void clear_screen();
 void int_to_ascii(int n, char str[]);
-void hex_to_ascii(uint32_t n, char str[]);
+void hex_to_ascii(uint64_t n, char str[]);
 
 /* --- Tasking & Processes --- */
-int  spawn_process(uint32_t entry_point, uint32_t user_stack);
+int  spawn_process(virt_addr_t entry_point, virt_addr_t user_stack);
 int  fork();
 void kill(int pid);
 void ps();
@@ -44,12 +46,12 @@ extern fs_node_t *fs_root;
 uint32_t read_fs(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer);
 struct dirent *readdir_fs(fs_node_t *node, uint32_t index);
 fs_node_t *finddir_fs(fs_node_t *node, char *name);
+void memory_copy(uint8_t *source, uint8_t *dest, size_t nbytes);
+void memory_set(uint8_t *dest, uint8_t val, size_t len);
 
 /* --- String / Util --- */
 int strcmp(const char s1[], const char s2[]);
 int strlen(const char s[]);
-void memory_copy(uint8_t *source, uint8_t *dest, int nbytes);
-void memory_set(uint8_t *dest, uint8_t val, uint32_t len);
 
 /* --- Scheduler API --- */
 #include "task.h"

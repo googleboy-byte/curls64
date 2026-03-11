@@ -18,10 +18,14 @@ extern void kernel_shell();
 extern int  usb_msc_init();
 extern int  usb_core_init();
 
+// Output functions
+void kprint(const char *c);
+
 void kernel_main(void) {
     // 1. Initialize Sacred Core (Invariants)
     core_init();
 
+#ifndef ARCH_X86_64
     // 2. Initialize Policy Modules via K-ABI
     // Order matters for some: screen first so we can see output
     screen_driver_init();
@@ -43,6 +47,9 @@ void kernel_main(void) {
 
     // 3. Start high-level orchestration
     kernel_shell();
+#else
+    kprint("[BOOT] 64-bit Paging64 Foundation verified. Halted.\n");
+#endif
 
     // 4. Idle loop
     while(1) {
@@ -51,13 +58,16 @@ void kernel_main(void) {
 }
 
 void panic(char *message) {
-    asm volatile("cli");
+#ifndef ARCH_X86_64
     ktrace_panic_snapshot(message);
+#endif
 
     // Emergency visual indication: prefer framebuffer if available, else VGA.
     if (boot_fb_info.present) {
+#ifndef ARCH_X86_64
         extern void fb_clear(uint32_t rgb);
         fb_clear(0x000000);
+#endif
     } else {
         volatile char *vga = (volatile char*)0xb8000;
         for(int i = 0; i < 80 * 25; i++) {

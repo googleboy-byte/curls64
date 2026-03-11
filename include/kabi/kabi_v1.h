@@ -15,6 +15,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <kernel/arch_types.h>
 
 #define KABI_VERSION 0x0001
 
@@ -24,16 +25,16 @@ typedef void kabi_fs_node_t;
 typedef void kabi_page_directory_t;
 
 typedef struct {
-    uint32_t total_size;
-    uint32_t used_size;
-    uint32_t free_size;
-    uint32_t max_addr;
+    size_t      total_size;
+    size_t      used_size;
+    size_t      free_size;
+    virt_addr_t max_addr;
 } kabi_heap_stats_t;
 
 typedef struct {
-    uint32_t total_frames;
-    uint32_t used_frames;
-    uint32_t free_frames;
+    uint64_t total_frames;
+    uint64_t used_frames;
+    uint64_t free_frames;
 } kabi_pmm_stats_t;
 
 /* --- Common Error Codes --- */
@@ -63,7 +64,7 @@ typedef enum {
  * @return Semantic: A pointer to at least 'size' bytes of kernel-accessible memory.
  * @guarantee Returned pointer is valid until kfree is called.
  */
-void *kmalloc(uint32_t size, int align, uint32_t *phys);
+void *kmalloc(size_t size, int align, phys_addr_t *phys);
 
 /**
  * @brief Free a kernel memory allocation.
@@ -88,7 +89,7 @@ void kabi_get_pmm_stats(kabi_pmm_stats_t *stats);
  * @param flags Reserved for future permissions (read/write/exec).
  * @return KABI_SUCCESS on success, negative error code otherwise.
  */
-int kabi_map_user_memory(uint32_t addr, uint32_t len, uint32_t flags);
+int kabi_map_user_memory(virt_addr_t addr, uint32_t len, uint32_t flags);
 
 /**
  * @brief Request a system power-off.
@@ -141,13 +142,13 @@ int kabi_task_signal(int pid, kabi_signal_t signal);
  * @param handler_eip  User-space function pointer (Ring-3 EIP), or 0 to reset.
  * @return KABI_SUCCESS or KABI_EINVAL if sig is SIGKILL/SIGCHLD.
  */
-int kabi_sigaction(int sig, uint32_t handler_eip);
+int kabi_sigaction(int sig, virt_addr_t handler_eip);
 
 /**
  * @brief Spawn a new process from an entry point.
  * @return Positive PID on success, negative error code on failure.
  */
-int kabi_spawn_process(uint32_t entry_point, uint32_t user_stack);
+int kabi_spawn_process(virt_addr_t entry_point, virt_addr_t user_stack);
 int kabi_sys_exec(const char *path);
 int kabi_sys_execve(const char *path, char **argv);
 int kabi_fork();
@@ -168,9 +169,9 @@ void kabi_wait_for_children();
  */
 typedef struct {
     uint32_t id;
-    uint32_t user_esp;
-    uint32_t user_eip;
-    uint32_t kernel_stack;
+    virt_addr_t user_esp;
+    virt_addr_t user_eip;
+    virt_addr_t kernel_stack;
     uint32_t capabilities;
     uint32_t parent_id;
     uint32_t ticks;
@@ -211,7 +212,7 @@ int kabi_task_next(kabi_task_iter_t *it, kabi_task_info_t *info);
  * @brief Transition the current task to Ring 3.
  * @guarantee Target memory must be pre-mapped for user access.
  */
-void kabi_jump_to_user_mode(uint32_t entry, uint32_t stack) __attribute__((noreturn));
+void kabi_jump_to_user_mode(virt_addr_t entry, virt_addr_t stack) __attribute__((noreturn));
 
 /**
  * @brief Signal all non-privileged child processes for termination.
@@ -285,10 +286,10 @@ void kabi_irq_register(uint8_t n, kabi_irq_handler_t handler);
 /**
  * @brief Output a null-terminated string to the system console.
  */
-void kprint(char *c);
+void kprint(const char *c);
 void kabi_get_line(char *buf);
 void kabi_int_to_ascii(int n, char str[]);
-void kabi_hex_to_ascii(uint32_t n, char str[]);
+void kabi_hex_to_ascii(uint64_t n, char str[]);
 void kabi_clear_screen();
 int kabi_block_read(uint32_t dev, uint32_t lba, uint8_t *buf);
 int kabi_block_write(uint32_t dev, uint32_t lba, uint8_t *buf);
@@ -308,7 +309,7 @@ int kabi_get_device_name(int index, char *buf);
  * @brief Get the size of a device in sectors.
  * @return Size in 512-byte sectors, or 0 if unknown/invalid.
  */
-uint32_t kabi_get_device_size(int index);
+uint64_t kabi_get_device_size(int index);
 
 /* --- Time --- */
 uint32_t kabi_get_ticks();

@@ -39,12 +39,12 @@ typedef struct task_struct {
     // uint32_t esp;               // Saved stack pointer (points to saved context)
     // uint32_t eip;		// newly added, not used, yet
 
-    uint32_t user_esp;
-    uint32_t user_eip;
+    virt_addr_t user_esp;
+    virt_addr_t user_eip;
 
     // DEPRACATED after introducing exec context based kstack allocation
-    uint32_t kernel_stack;      // Top of kernel stack for this task (for TSS)
-    uint32_t kernel_stack_base; // Base of kernel stack (for kfree)
+    virt_addr_t kernel_stack;      // Top of kernel stack for this task (for TSS)
+    virt_addr_t kernel_stack_base; // Base of kernel stack (for kfree)
 
 
     page_directory_t *page_directory; // Page directory.
@@ -58,9 +58,9 @@ typedef struct task_struct {
     /* --- Signal state --- */
     uint32_t pending_signals;    // Bitmask of pending signals (SIG_BIT(sig))
     uint32_t signal_mask;        // Bitmask of blocked signals (reserved, future)
-    uint32_t sigterm_handler;    // User-space EIP for SIGTERM/SIGINT handler (0 = default)
-    uint32_t saved_eip;          // User EIP saved before signal handler dispatch (for sigreturn)
-    uint32_t saved_esp;          // User ESP saved before signal handler dispatch (for sigreturn)
+    virt_addr_t sigterm_handler; // User-space EIP for SIGTERM/SIGINT handler (0 = default)
+    virt_addr_t saved_eip;       // User EIP saved before signal handler dispatch (for sigreturn)
+    virt_addr_t saved_esp;       // User ESP saved before signal handler dispatch (for sigreturn)
     int      in_signal;          // Reentrancy guard: non-zero while executing a signal handler
     uint32_t sleep_until;        // Tick to wake up on (0 = not sleeping)
     struct task_struct *sleep_next; // Next in sorted sleep queue (NULL = not queued)
@@ -72,8 +72,8 @@ typedef struct cpu_local{
     uint32_t id;
     
     // the kstack for this cpu
-    uint32_t kstack_base;
-    uint32_t kstack_top;
+    virt_addr_t kstack_base;
+    virt_addr_t kstack_top;
 
     // currently running task_t
     task_t *current;
@@ -114,13 +114,13 @@ int fork();
 
 /* Create a new process to run user-mode code at the given entry point
  * with the given user stack. Returns the new process ID. */
-int spawn_process(uint32_t entry_point, uint32_t user_stack);
+int spawn_process(virt_addr_t entry_point, virt_addr_t user_stack);
 
 /* Causes the current process' stack to be forcibly moved to a new location. */
 void move_stack(void *new_stack_start, uint32_t size);
 
 /* Jump to user mode with given entry point and stack */
-extern void jump_to_user_mode(uint32_t address, uint32_t stack) __attribute__((noreturn));
+extern void jump_to_user_mode(virt_addr_t address, virt_addr_t stack) __attribute__((noreturn));
 
 /* Returns the pid of the current process. */
 int getpid();
@@ -163,7 +163,7 @@ extern uint32_t next_pid;
 static inline void assert_on_kstack(registers_t *regs) {
     if (!current_task) return;
     
-    uint32_t addr = (uint32_t)regs;
+    uintptr_t addr = (uintptr_t)regs;
     
     // Check if on task stack
     if (addr >= current_task->kernel_stack_base && addr < current_task->kernel_stack) {
@@ -179,9 +179,13 @@ static inline void assert_on_kstack(registers_t *regs) {
 }
 
 static inline void assert_on_cpu_stack(cpu_local_t *cpu) {
-    uint32_t esp;
-    asm volatile("mov %%esp, %0" : "=r"(esp));
+    uintptr_t esp;
+    asm volatile("mov %%rsp, %0" : "=r"(esp));
+#ifdef ARCH_X86_64
     if (esp < cpu->kstack_base || esp >= cpu->kstack_top) {
+#else
+    if (esp < cpu->kstack_base || esp >= cpu->kstack_top) {
+#endif
         panic("CPU STACK ESCAPE");
     }
 }

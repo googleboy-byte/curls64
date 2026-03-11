@@ -16,6 +16,7 @@
 // This structure contains the value of one GDT entry.
 // We use the attribute 'packed' to tell GCC not to change
 // any of the alignment in the structure.
+#ifndef ARCH_X86_64
 struct gdt_entry_struct {
     uint16_t limit_low;           // The lower 16 bits of the limit.
     uint16_t base_low;            // The lower 16 bits of the base.
@@ -25,14 +26,41 @@ struct gdt_entry_struct {
     uint8_t  base_high;           // The last 8 bits of the base.
 } __attribute__((packed));
 typedef struct gdt_entry_struct gdt_entry_t;
+#else
+struct gdt_entry64_struct {
+    uint16_t limit_low;
+    uint16_t base_low;
+    uint8_t  base_middle;
+    uint8_t  access;
+    uint8_t  granularity;
+    uint8_t  base_high;
+} __attribute__((packed));
+typedef struct gdt_entry64_struct gdt_entry64_t;
+
+struct gdt_tss_descriptor64_struct {
+    uint16_t limit_low;
+    uint16_t base_low;
+    uint8_t  base_mid;
+    uint8_t  access;
+    uint8_t  granularity;
+    uint8_t  base_high;
+    uint32_t base_upper;
+    uint32_t reserved;
+} __attribute__((packed));
+typedef struct gdt_tss_descriptor64_struct gdt_tss_descriptor64_t;
+
+// For x64, we use 64-bit entries. Each TSS takes 2 slots.
+typedef gdt_entry64_t gdt_entry_t;
+#endif
 
 struct gdt_ptr_struct {
     uint16_t limit;               // The upper 16 bits of all selector limits.
-    uint32_t base;                // The address of the first gdt_entry_t struct.
+    uintptr_t base;                // The address of the first gdt_entry_t struct.
 } __attribute__((packed));
 typedef struct gdt_ptr_struct gdt_ptr_t;
 
 // A struct describing a Task State Segment.
+#ifndef ARCH_X86_64
 struct tss_entry_struct {
     uint32_t prev_tss;   // The previous TSS - if we used hardware task switching this would form a linked list.
     uint32_t esp0;       // The stack pointer to load when we change to kernel mode.
@@ -63,9 +91,34 @@ struct tss_entry_struct {
     uint16_t iomap_base;
 } __attribute__((packed));
 typedef struct tss_entry_struct tss_entry_t;
+#else
+struct tss64_entry_struct {
+    uint32_t reserved0;
+    uint64_t rsp0;
+    uint64_t rsp1;
+    uint64_t rsp2;
+    uint64_t reserved1;
+    uint64_t ist1;
+    uint64_t ist2;
+    uint64_t ist3;
+    uint64_t ist4;
+    uint64_t ist5;
+    uint64_t ist6;
+    uint64_t ist7;
+    uint64_t reserved2;
+    uint16_t reserved3;
+    uint16_t iomap_base;
+} __attribute__((packed));
+typedef struct tss64_entry_struct tss64_entry_t;
+typedef tss64_entry_t tss_entry_t;
+#endif
 
 void init_gdt();
 void cpu_init(int cpu_id);
+#ifdef ARCH_X86_64
+void set_kernel_stack(uint64_t stack);
+#else
 void set_kernel_stack(uint32_t stack);
+#endif
 
 #endif

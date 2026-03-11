@@ -73,10 +73,15 @@ multiboot2_start:
     or eax, 0b11 ; Present | Writeable
     mov [pdpt], eax
     
-    ; PD[0] -> 2MB Page (identity map 0..2MB)
-    mov eax, 0x0
-    or eax, 0b10000011 ; Present | Writeable | Huge (bit 7)
-    mov [pd], eax
+    ; PD[0..31] -> 2MB Pages (identity map 0..64MB)
+    mov edi, pd
+    mov eax, 0b10000011 ; Present | Writeable | Huge
+    mov ecx, 32
+.map_loop:
+    mov [edi], eax
+    add edi, 8
+    add eax, 0x200000 ; Next 2MB
+    loop .map_loop
 
     ; 2. Enable PAE
     mov eax, cr4

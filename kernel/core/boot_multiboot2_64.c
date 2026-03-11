@@ -1,6 +1,10 @@
 #include "boot_info.h"
 #include "kernel.h"
 #include <stdint.h>
+#include "../../libc/mem.h"
+#include "../../libc/string.h"
+#include "../../kernel/cpu/paging.h"
+#include "../arch/x86_64/mmu/mmu.h"
 
 /**
  * @file boot_multiboot2_64.c
@@ -19,6 +23,21 @@ typedef struct multiboot_tag {
     uint32_t size;
 } multiboot_tag_t;
 
+typedef struct multiboot_mmap_entry {
+    uint64_t addr;
+    uint64_t len;
+    uint32_t type;
+    uint32_t zero;
+} multiboot_mmap_entry_t;
+
+typedef struct multiboot_tag_mmap {
+    uint32_t type;
+    uint32_t size;
+    uint32_t entry_size;
+    uint32_t entry_version;
+    multiboot_mmap_entry_t entries[0];
+} multiboot_tag_mmap_t;
+
 typedef struct multiboot_tag_framebuffer {
     uint32_t type;
     uint32_t size;
@@ -36,43 +55,66 @@ boot_framebuffer_info_t boot_fb_info = {
     .present = 0
 };
 
-// Minimal serial print for verification
+boot_mmap_info_t boot_mmap_info = {
+    .count = 0
+};
+
+// --- Minimal Serial/Kprint for Verification ---
 #define COM1 0x3f8
-static void serial_putc(char c) {
-    while ((*(volatile uint8_t*)(uintptr_t)(COM1 + 5) & 0x20) == 0);
-    asm volatile("outb %b0, %w1" : : "a"(c), "Nd"(COM1));
+
+// outb/inb/serial_init/write_serial kept for bootloader initialization
+static void outb(uint16_t port, uint8_t val) {
+    asm volatile("outb %0, %1" : : "a"(val), "Nd"(port));
 }
 
-static void serial_print(const char *s) {
-    while (*s) serial_putc(*s++);
+static uint8_t inb(uint16_t port) {
+    uint8_t ret;
+    asm volatile("inb %1, %0" : "=a"(ret) : "Nd"(port));
+    return ret;
 }
 
-/**
- * kernel_multiboot2_main64
- * Entry point called by multiboot2_entry64.asm after long mode is enabled.
- * rdi = mbi_addr, rsi = magic
- */
+void serial_init() {
+    outb(COM1 + 1, 0x00);    // Disable all interrupts
+    outb(COM1 + 3, 0x80);    // Enable DLAB (set baud rate divisor)
+    outb(COM1 + 0, 0x03);    // Set divisor to 3 (lo byte) 38400 baud
+    outb(COM1 + 1, 0x00);    //                  (hi byte)
+    outb(COM1 + 3, 0x03);    // 8 bits, no parity, one stop bit
+    outb(COM1 + 2, 0xC7);    // Enable FIFO, clear them, with 14-byte threshold
+    outb(COM1 + 4, 0x0B);    // IRQs enabled, RTS/DSR set
+}
+
+int is_transmit_empty() {
+    return inb(COM1 + 5) & 0x20;
+}
+
+void write_serial(char a) {
+    while (is_transmit_empty() == 0);
+    outb(COM1, a);
+}
+
+void kprint(const char *s) {
+    while (*s) {
+        if (*s == '\n') write_serial('\r');
+        write_serial(*s++);
+    }
+}
+
 void kernel_multiboot2_main64(void *mbi_addr, uint64_t magic) {
-    serial_print("\r\n--- Curls x86_64 First Light ---\r\n");
-    serial_print("Long mode enabled, entering 64-bit C code...\r\n");
-
-    // Default: no framebuffer
+    serial_init();
+    kprint("--- Phase 3: Paging64 Foundation bringing up kernel ---\n");
+    
     boot_fb_info.present = 0;
+    boot_mmap_info.count = 0;
 
     if (magic == MULTIBOOT2_BOOTLOADER_MAGIC && mbi_addr) {
         uint8_t *addr = (uint8_t *)mbi_addr;
         uint32_t total_size = *(uint32_t *)addr;
-        uint32_t offset = 8; // skip total_size and reserved
+        uint32_t offset = 8;
 
         while (offset < total_size) {
             multiboot_tag_t *tag = (multiboot_tag_t *)(addr + offset);
-            
-            // End tag
-            if (tag->type == 0) {
-                break;
-            }
+            if (tag->type == 0) break;
 
-            // Framebuffer tag
             if (tag->type == 8) {
                 multiboot_tag_framebuffer_t *fb = (multiboot_tag_framebuffer_t *)tag;
                 boot_fb_info.present = 1;
@@ -83,17 +125,24 @@ void kernel_multiboot2_main64(void *mbi_addr, uint64_t magic) {
                 boot_fb_info.bpp     = fb->framebuffer_bpp;
                 boot_fb_info.type    = fb->framebuffer_type;
             }
-
-            // Tags are 8-byte aligned
-            offset += (tag->size + 7) & ~7;
             
-            // Safety break for corrupted headers
+            if (tag->type == 6) {
+                multiboot_tag_mmap_t *mmap = (multiboot_tag_mmap_t *)tag;
+                uint32_t entries = (mmap->size - 16) / mmap->entry_size;
+                for (uint32_t i = 0; i < entries && i < MAX_BOOT_MMAP_ENTRIES; i++) {
+                    boot_mmap_info.entries[i].addr = mmap->entries[i].addr;
+                    boot_mmap_info.entries[i].len  = mmap->entries[i].len;
+                    boot_mmap_info.entries[i].type = mmap->entries[i].type;
+                    boot_mmap_info.count++;
+                }
+            }
+            offset += (tag->size + 7) & ~7;
             if (offset == 0 || tag->size == 0) break;
         }
     }
-
+    
     // Call architecture-independent kernel entry
-    // kernel_main();
-    serial_print("Verification complete. Hanging.\r\n");
+    kprint("Calling kernel_main()...\n");
+    kernel_main();
     while(1);
 }
