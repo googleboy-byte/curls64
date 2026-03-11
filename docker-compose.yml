@@ -1,0 +1,6 @@
+services:
+  curls-os-dev:
+    build: .
+    volumes:
+      - .:/os
+    working_dir: /os

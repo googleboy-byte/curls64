@@ -1,0 +1,72 @@
+#include "mem.h"
+#include "../kernel/cpu/paging.h"
+
+void memory_copy(uint8_t *source, uint8_t *dest, int nbytes) {
+    int i;
+    for (i = 0; i < nbytes; i++) {
+        *(dest + i) = *(source + i);
+    }
+}
+
+int memory_compare(uint8_t *s1, uint8_t *s2, int n) {
+    int i;
+    for (i = 0; i < n; i++) {
+        if (s1[i] != s2[i]) return s1[i] - s2[i];
+    }
+    return 0;
+}
+
+void memory_set(uint8_t *dest, uint8_t val, uint32_t len) {
+    uint8_t *temp = (uint8_t *)dest;
+    for ( ; len != 0; len--) *temp++ = val;
+}
+
+/* This should be computed at link time, but a hardcoded
+ * value is fine for now. Remember that our kernel starts
+ * at 0x1000 as defined on the Makefile */
+uint32_t free_mem_addr = 0x100000;
+/* Implementation of Kernel Heap */
+#include "kheap.h"
+
+heap_t *kheap = 0;
+
+uint32_t kmalloc_int(size_t size, int align, uint32_t *phys_addr) {
+    uint32_t f = irq_save();
+    /* Pages are aligned to 4K, or 0x1000 */
+    if (align == 1 && (free_mem_addr & 0xFFF)) {
+        free_mem_addr &= 0xFFFFF000;
+        free_mem_addr += 0x1000;
+    }
+    /* Save also the physical address */
+    if (phys_addr) *phys_addr = free_mem_addr;
+
+    uint32_t ret = free_mem_addr;
+    free_mem_addr += size; /* Remember to increment the pointer */
+
+    if (pmm_is_ready) {
+        // Reserve frames in PMM. In this kernel, virt == phys for early allocations.
+        for (uint32_t addr = ret & 0xFFFFF000; addr < (free_mem_addr + 0xFFF) & 0xFFFFF000; addr += 0x1000) {
+            pmm_set_frame(addr / 0x1000);
+        }
+    }
+
+    irq_restore(f);
+    return ret;
+}
+
+void *kmalloc(size_t size, int align, uint32_t *phys_addr) {
+    if (kheap != 0) {
+        void *addr = alloc(size, (uint8_t)align, kheap);
+        if (phys_addr) {
+            page_t *page = get_page((uint32_t)addr, 0, kernel_directory);
+            *phys_addr = page->frame * 0x1000 + ((uint32_t)addr & 0xFFF);
+        }
+        return addr;
+    } else {
+        return (void*)kmalloc_int(size, align, phys_addr);
+    }
+}
+
+void kfree(void *p) {
+    free(p, kheap);
+}
