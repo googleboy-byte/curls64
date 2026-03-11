@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <kernel/arch_types.h>
 
 #define KHEAP_START         0xC0000000
 #define KHEAP_INITIAL_SIZE  0x400000
@@ -35,9 +36,9 @@ typedef struct {
 
 typedef struct heap {
     ordered_array_t index;
-    uint32_t start_address; // The start of our allocated space.
-    uint32_t end_address;   // The end of our allocated space. May be expanded up to max_address.
-    uint32_t max_address;   // The maximum address the heap can be expanded to.
+    virt_addr_t start_address; // The start of our allocated space.
+    virt_addr_t end_address;   // The end of our allocated space. May be expanded up to max_address.
+    virt_addr_t max_address;   // The maximum address the heap can be expanded to.
     uint8_t supervisor;     // Should extra pages requested by us be mapped as supervisor?
     uint8_t readonly;       // Should extra pages requested by us be mapped as read-only?
 } heap_t;
@@ -45,27 +46,27 @@ typedef struct heap {
 /**
  * Create a new heap.
  */
-heap_t *create_heap(uint32_t start, uint32_t end, uint32_t max, uint8_t supervisor, uint8_t readonly);
+heap_t *create_heap(virt_addr_t start, virt_addr_t end, virt_addr_t max, uint8_t supervisor, uint8_t readonly);
 
 /**
  * Allocates a contiguous region of memory 'size' in size.
  * If page_align==1, it creates that block starting on a page boundary.
  */
-void *alloc(uint32_t size, uint8_t page_align, heap_t *heap);
+void *alloc(size_t size, uint8_t page_align, heap_t *heap);
 
 /**
  * Releases a block allocated with 'alloc'.
  */
 // releases a block
 void free(void *p, heap_t *heap);
-void expand(uint32_t new_size, heap_t *heap);
-uint32_t contract(uint32_t new_size, heap_t *heap);
+void expand(virt_addr_t new_size, heap_t *heap);
+virt_addr_t contract(virt_addr_t new_size, heap_t *heap);
 
 typedef struct {
     uint32_t total_size;
     uint32_t used_size;
     uint32_t free_size;
-    uint32_t max_addr;
+    virt_addr_t max_addr;
 } heap_stats_t;
 
 void get_heap_stats(heap_stats_t *stats);
@@ -75,7 +76,7 @@ void* lookup_ordered_array(uint32_t i, ordered_array_t *array);
 /**
  * Allocation wrapper associated with generic kheap
  */
-uint32_t kmalloc_int(size_t size, int align, uint32_t *phys);
+uint64_t kmalloc_int(size_t size, int align, phys_addr_t *phys);
 void kfree(void *p);
 
 #endif

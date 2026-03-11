@@ -23,4 +23,7 @@ SECTIONS
     KEEP(*(.ktrace))
     __ktrace_end = .;
   }
+
+  /* Define the end of the kernel */
+  end = .;
 }

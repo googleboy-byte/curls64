@@ -14,7 +14,21 @@ typedef struct boot_framebuffer_info {
     uint64_t addr;      // Physical base address of the framebuffer
 } boot_framebuffer_info_t;
 
+typedef struct boot_mmap_entry {
+    uint64_t addr;
+    uint64_t len;
+    uint32_t type;
+    uint32_t _pad;
+} boot_mmap_entry_t;
+
+#define MAX_BOOT_MMAP_ENTRIES 32
+typedef struct boot_mmap_info {
+    uint32_t count;
+    boot_mmap_entry_t entries[MAX_BOOT_MMAP_ENTRIES];
+} boot_mmap_info_t;
+
 extern boot_framebuffer_info_t boot_fb_info;
+extern boot_mmap_info_t boot_mmap_info;
 
 // Virtual base for kernel mapping of the framebuffer when present.
 // Chosen to avoid clashes with KHEAP (0xC0000000..0xD0000000) and PHYSMAP (0xE0000000..).

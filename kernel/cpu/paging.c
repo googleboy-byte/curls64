@@ -9,10 +9,18 @@
 #include "../core/task.h"
 
 /* The kernel's page directory */
+#ifndef ARCH_X86_64
 page_directory_t *kernel_directory = 0;
+#else
+mmu_context_t *kernel_directory = 0;
+#endif
 
 /* Current page directory */
+#ifndef ARCH_X86_64
 page_directory_t *current_directory = 0;
+#else
+mmu_context_t *current_directory = 0;
+#endif
 
 /* Frame reference counting */
 /* TODO: Eventually tie this into a formal Physical Memory Manager (PMM) */
@@ -98,11 +106,36 @@ void get_pmm_stats(pmm_stats_t *stats) {
 
 void pmm_reserve_early_memory() {
     extern uint32_t free_mem_addr;
-    uint32_t end = (free_mem_addr + 0xFFF) & 0xFFFFF000;
-    kprint("  - PMM Reserving memory 0x0 to 0x");
+    phys_addr_t end = (free_mem_addr + 0xFFF) & ~0xFFFULL;
+    kprint("  - PMM Reserving kernel memory: 0x0 to 0x");
     char s[16]; hex_to_ascii(end, s); kprint(s); kprint("\n");
-    for (uint32_t i = 0; i < end; i += 0x1000) {
+    for (phys_addr_t i = 0; i < end; i += 0x1000) {
         pmm_set_frame(i / 0x1000);
+    }
+}
+
+void pmm_init_from_mmap() {
+    kprint("  - PMM Initializing from Multiboot2 memory map...\n");
+    if (boot_mmap_info.count == 0) {
+        kprint("    WARNING: No memory map found, assuming 128MB\n");
+        return;
+    }
+
+    uint32_t usable_count = 0;
+    for (uint32_t i = 0; i < boot_mmap_info.count; i++) {
+        if (boot_mmap_info.entries[i].type == 1) { // Usable RAM
+            usable_count++;
+            // We could mark these as available in the bitmap, 
+            // but the current PMM starts with everything "available" (0)
+            // and we set bits for "used".
+        } else {
+            // Reserve non-usable regions
+            phys_addr_t start = boot_mmap_info.entries[i].addr;
+            phys_addr_t end = start + boot_mmap_info.entries[i].len;
+            for (phys_addr_t p = (start & ~0xFFFULL); p < end; p += 0x1000) {
+                pmm_set_frame(p / 0x1000);
+            }
+        }
     }
 }
 
@@ -111,6 +144,7 @@ extern uint32_t free_mem_addr;
 // extern uint32_t kmalloc(size_t size, int align, uint32_t *phys_addr); // ALREADY IN mem.h
 
 
+#ifndef ARCH_X86_64
 void init_paging() {
     /* The size of physical memory. For the moment we assume 128MB */
     uint32_t mem_end_page = 0x8000000; // 128MB
@@ -119,24 +153,8 @@ void init_paging() {
     memory_set((uint8_t*)frame_bitmap, 0, sizeof(frame_bitmap));
     memory_set((uint8_t*)frame_ref_count, 0, sizeof(frame_ref_count));
 
-    kprint("  - Allocating kernel page directory...\n");
-    uint32_t phys;
-    kernel_directory = (page_directory_t*)kmalloc(sizeof(page_directory_t), 1, &phys);
-    memory_set((uint8_t*)kernel_directory, 0, sizeof(page_directory_t));
-    kernel_directory->physicalAddr = phys + (uint32_t)kernel_directory->tablesPhysical - (uint32_t)kernel_directory;
-
-    kprint("  - Identity mapping 16MB (Supervisor)...\n");
-    kprint("  - Identity mapping mem_end_page (Supervisor)...\n");
-    uint32_t i = 0;
-    for (i = 0; i < mem_end_page; i += 0x1000) {
-        page_t *page = get_page(i, 1, kernel_directory);
-        page->present = 1;
-        page->rw = 1;
-        page->user = 0;
-        page->frame = i / 0x1000;
-    }
-
-    kprint("  - Finalizing PMM Reservation...\n");
+    pmm_init_from_mmap();
+    kprint("  - Finalizing PMM Reservation (Kernel)...\n");
     pmm_reserve_early_memory();
     pmm_is_ready = 1;
 
@@ -492,3 +510,4 @@ void free_page_directory(page_directory_t *dir) {
     // Free the directory itself
     kfree(dir);
 }
+#endif

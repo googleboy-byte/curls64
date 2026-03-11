@@ -79,13 +79,23 @@ extern void irq15();
  * - All the registers by pusha
  * - `push eax` whose lower 16-bits contain DS
  */
+#ifndef ARCH_X86_64
 typedef struct {
    uint32_t ds; /* Data segment selector */
    uint32_t edi, esi, ebp, useless, ebx, edx, ecx, eax; /* Pushed by pusha. */
    uint32_t int_no, err_code; /* Interrupt number and error code (if applicable) */
    uint32_t eip, cs, eflags, esp, ss; /* Pushed by the processor automatically */
 } registers_t;
+#else
+typedef struct {
+   uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
+   uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
+   uint64_t int_no, err_code;
+   uint64_t rip, cs, rflags, rsp, ss;
+} registers_t;
+#endif
 
+#ifndef ARCH_X86_64
 static inline uint32_t irq_save() {
     uint32_t flags;
     asm volatile("pushf; pop %0; cli" : "=r"(flags) : : "memory");
@@ -95,6 +105,17 @@ static inline uint32_t irq_save() {
 static inline void irq_restore(uint32_t flags) {
     asm volatile("push %0; popf" : : "r"(flags) : "memory", "cc");
 }
+#else
+static inline uint64_t irq_save() {
+    uint64_t flags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+}
+
+static inline void irq_restore(uint64_t flags) {
+    asm volatile("push %0; popfq" : : "r"(flags) : "memory", "cc");
+}
+#endif
 
 void isr_install();
 void isr_handler(registers_t *r);

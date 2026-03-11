@@ -5,15 +5,25 @@
 #include <stdint.h>
 #include <kernel/arch_types.h>
 
+#ifdef ARCH_X86_64
+#define PHYSMAP_BASE 0x0ULL
+#else
 #define PHYSMAP_BASE 0xE0000000
+#endif
 
-/* Page Page Entry
- * The page table entries look like this:
- * Bit 0: Present: 1 = page is present in memory
- * Bit 1: RW: 0 = Read-only, 1 = Read/Write
- * Bit 2: User: 0 = Supervisor, 1 = User
- * Bits 12-31: Frame address (shifted right 12 bits)
- */
+#ifdef ARCH_X86_64
+#include "../arch/x86_64/mmu/mmu.h"
+// Alias 32-bit types to 64-bit for compatibility where possible
+typedef mmu_entry_t page_t;
+typedef mmu_context_t page_directory_t;
+
+// Helper to extract frame from 64-bit entry
+#define PAGE_FRAME(p) ((p) & ~0xFFFULL)
+#define PAGE_PRESENT(p) ((p) & MMU_PRESENT)
+
+#define PAGE_SET_FRAME(p, f) (*(p) = ((*(p)) & 0xFFF) | (f))
+#define PAGE_SET_FLAGS(p, flags) (*(p) = ((*(p)) & ~0xFFFULL) | (flags))
+#else
 typedef struct {
    uint32_t present    : 1;   // 0: Page present in memory
    uint32_t rw         : 1;   // 1: Read-only if clear, readwrite if set
@@ -45,6 +55,12 @@ typedef struct {
     * may be in a different location in virtual memory. */
    phys_addr_t physicalAddr;
 } page_directory_t;
+
+#define PAGE_FRAME(p) ((p)->frame * 0x1000)
+#define PAGE_PRESENT(p) ((p)->present)
+#define PAGE_SET_FRAME(p, f) ((p)->frame = (f) / 0x1000)
+#define PAGE_SET_FLAGS(p, f) /* No-op or specialized for 32-bit if needed */
+#endif
 
 /**
  * Sets up the environment, page directories etc and
