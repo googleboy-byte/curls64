@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "../../libc/mem.h"
 #include "../../libc/string.h"
+#include "../../kernel/cpu/paging.h"
 #include "../arch/x86_64/mmu/mmu.h"
 
 /**
@@ -12,8 +13,6 @@
  * This file replaces boot_multiboot2.c in 64-bit builds.
  * It parses Multiboot2 tags using 64-bit safe pointers.
  */
-
-extern void kernel_main(void);
 
 #define MULTIBOOT2_BOOTLOADER_MAGIC 0x36D76289
 
@@ -106,27 +105,28 @@ void panic(char *message) {
     }
 }
 
+// Dummy kernel_main for linker
+void kernel_main(void) {
+    kprint("Reached kernel_main() dummy success!\n");
+    while(1);
+}
+
 void kernel_multiboot2_main64(void *mbi_addr, uint64_t magic) {
     serial_init();
-    kprint("--- Phase 3: Paging64 Verification ---\n");
-    // Default: no info
+    kprint("--- Phase 3: Paging64 Foundation (Persistent Context) ---\n");
+    
     boot_fb_info.present = 0;
     boot_mmap_info.count = 0;
 
     if (magic == MULTIBOOT2_BOOTLOADER_MAGIC && mbi_addr) {
         uint8_t *addr = (uint8_t *)mbi_addr;
         uint32_t total_size = *(uint32_t *)addr;
-        uint32_t offset = 8; // skip total_size and reserved
+        uint32_t offset = 8;
 
         while (offset < total_size) {
             multiboot_tag_t *tag = (multiboot_tag_t *)(addr + offset);
-            
-            // End tag
-            if (tag->type == 0) {
-                break;
-            }
+            if (tag->type == 0) break;
 
-            // Framebuffer tag
             if (tag->type == 8) {
                 multiboot_tag_framebuffer_t *fb = (multiboot_tag_framebuffer_t *)tag;
                 boot_fb_info.present = 1;
@@ -138,7 +138,6 @@ void kernel_multiboot2_main64(void *mbi_addr, uint64_t magic) {
                 boot_fb_info.type    = fb->framebuffer_type;
             }
             
-            // Memory map tag
             if (tag->type == 6) {
                 multiboot_tag_mmap_t *mmap = (multiboot_tag_mmap_t *)tag;
                 uint32_t entries = (mmap->size - 16) / mmap->entry_size;
@@ -149,61 +148,29 @@ void kernel_multiboot2_main64(void *mbi_addr, uint64_t magic) {
                     boot_mmap_info.count++;
                 }
             }
-
-            // Tags are 8-byte aligned
             offset += (tag->size + 7) & ~7;
-            
-            // Safety break for corrupted headers
             if (offset == 0 || tag->size == 0) break;
         }
     }
-    // --- Phase 3 Verification ---
-    // Minimal serial setup (re-using COM1 from previous phase if needed)
-    #define COM1 0x3f8
-    void serial_print_str(const char *s); // forward decl
-    
-    // Create a temporary MMU context for verification
-    mmu_context_t verify_ctx;
-    phys_addr_t pml4_phys;
-    
-    kprint("Allocating PML4...\n");
-    mmu_table_t *pml4_virt = (mmu_table_t*)kmalloc(sizeof(mmu_table_t), 1, &pml4_phys);
-    kprint("PML4 Phys: ");
-    char hex_pml4[20]; hex64_to_ascii(pml4_phys, hex_pml4); kprint(hex_pml4); kprint("\n");
-    
-    memory_set((uint8_t*)pml4_virt, 0, sizeof(mmu_table_t));
-    verify_ctx.pml4_phys = pml4_phys;
-    verify_ctx.pml4_virt = pml4_virt;
 
-    kprint("Mapping High Canonical address...\n");
-    virt_addr_t test_virt = 0xFFFF800000000000ULL;
-    phys_addr_t test_phys = 0x100000;
-    
-    mmu_map_page(&verify_ctx, test_virt, test_phys, MMU_WRITABLE);
-    
-    kprint("Identity mapping low 16MB...\n");
-    for (uint64_t low = 0; low < 0x1000000; low += 0x1000) {
-        mmu_map_page(&verify_ctx, low, low, MMU_WRITABLE);
-    }
-    
-    kprint("Switching CR3 to 0x");
-    hex_to_ascii(verify_ctx.pml4_phys, hex_pml4); kprint(hex_pml4); kprint("...\n");
-    mmu_switch(&verify_ctx);
-    kprint("Switch successful!\n");
-    
-    kprint("Attempting access at ");
-    char hex_virt[20]; hex64_to_ascii(test_virt, hex_virt); kprint(hex_virt); kprint("...\n");
+    kprint("Establishing Persistent Paging64 Context...\n");
+    init_paging();
+
+    kprint("Verifying Higher-Half Mapping (PHYSMAP)...\n");
+    virt_addr_t test_virt = PHYSMAP_BASE + 0x100000;
     uint32_t *p = (uint32_t*)test_virt;
-    uint32_t val = *p; // Should read data from physical 1MB
+    uint32_t val = *p;
     
-    // If we reach here, mapping worked!
-    kprint("MMU High Canonical Mapping Success! Value: 0x");
-    char hex[16];
-    hex64_to_ascii(val, hex);
-    kprint(hex);
-    kprint("\n");
+    kprint("Value at PHYSMAP[1MB]: ");
+    char hex[20]; hex64_to_ascii(val, hex); kprint(hex); kprint("\n");
 
-    // Call architecture-independent kernel entry
-    // kernel_main();
-    while(1);
+    pmm_stats_t stats;
+    get_pmm_stats(&stats);
+    kprint("PMM Stats:\n");
+    kprint("  Total Frames: "); hex64_to_ascii(stats.total_frames, hex); kprint(hex); kprint("\n");
+    kprint("  Used Frames:  "); hex64_to_ascii(stats.used_frames, hex); kprint(hex); kprint("\n");
+    kprint("  Free Frames:  "); hex64_to_ascii(stats.free_frames, hex); kprint(hex); kprint("\n");
+
+    kprint("Transitioning to kernel_main()...\n");
+    kernel_main();
 }

@@ -23,34 +23,37 @@ mmu_context_t *current_directory = 0;
 #endif
 
 /* Frame reference counting */
-/* TODO: Eventually tie this into a formal Physical Memory Manager (PMM) */
-#define MAX_FRAMES 32768 // 128MB / 4KB
-uint8_t frame_ref_count[MAX_FRAMES];
-uint32_t frame_bitmap[MAX_FRAMES / 32];
+/* x86_64: Dynamically sized from Multiboot2 memory map */
+uint8_t *frame_ref_count = 0;
+uint32_t *frame_bitmap = 0;
+uint32_t total_frames = 0;
 int pmm_is_ready = 0;
 
 void pmm_set_frame(uint32_t frame) {
-    if (frame >= MAX_FRAMES) return;
+    if (!frame_bitmap || frame >= total_frames) return;
     frame_bitmap[frame / 32] |= (1 << (frame % 32));
 }
 
 void pmm_clear_frame(uint32_t frame) {
+    if (!frame_bitmap || frame >= total_frames) return;
     frame_bitmap[frame / 32] &= ~(1 << (frame % 32));
 }
 
 int pmm_test_frame(uint32_t frame) {
-    if (frame >= MAX_FRAMES) return -1;
+    if (!frame_bitmap || frame >= total_frames) return -1;
     return (frame_bitmap[frame / 32] & (1 << (frame % 32))) ? 1 : 0;
 }
 
 uint32_t pmm_first_free() {
+    if (!frame_bitmap) return (uint32_t)-1;
     uintptr_t kernel_limit_frame = (free_mem_addr + 0xFFF) / 0x1000;
 
-    for (uint32_t i = 0; i < MAX_FRAMES / 32; i++) {
+    for (uint32_t i = 0; i < total_frames / 32; i++) {
         if (frame_bitmap[i] != 0xFFFFFFFF) {
             for (uint32_t j = 0; j < 32; j++) {
                 uint32_t frame = i * 32 + j;
                 if (!(frame_bitmap[i] & (1 << j))) {
+                    if (frame >= total_frames) break;
                     // SAFETY: Never return a frame that is in the kernel's early managed range
                     if (frame < kernel_limit_frame) {
                         // This frame should have been reserved. Set it now and continue.
@@ -66,7 +69,7 @@ uint32_t pmm_first_free() {
 }
 
 void frame_add_ref(uint32_t frame) {
-    if (frame < MAX_FRAMES) {
+    if (frame_ref_count && frame < total_frames) {
         if (frame_ref_count[frame] == 0) {
             pmm_set_frame(frame);
         }
@@ -75,7 +78,7 @@ void frame_add_ref(uint32_t frame) {
 }
 
 void frame_remove_ref(uint32_t frame) {
-    if (frame < MAX_FRAMES && frame_ref_count[frame] > 0) {
+    if (frame_ref_count && frame < total_frames && frame_ref_count[frame] > 0) {
         frame_ref_count[frame]--;
         if (frame_ref_count[frame] == 0) {
             pmm_clear_frame(frame);
@@ -84,22 +87,20 @@ void frame_remove_ref(uint32_t frame) {
 }
 
 uint8_t frame_get_ref(uint32_t frame) {
-    if (frame < MAX_FRAMES) {
+    if (frame_ref_count && frame < total_frames) {
         return frame_ref_count[frame];
     }
     return 0;
 }
 
 void get_pmm_stats(pmm_stats_t *stats) {
-    if (!stats) return;
+    if (!stats || !frame_bitmap) return;
     uint32_t used = 0;
-    uint32_t i = 0;
-    while (i < MAX_FRAMES) {
-        if (frame_bitmap[i/32] & (1 << (i % 32))) used++;
-        i++;
+    for (uint32_t i = 0; i < total_frames; i++) {
+        if (pmm_test_frame(i) == 1) used++;
     }
     stats->used_frames = used;
-    stats->total_frames = MAX_FRAMES;
+    stats->total_frames = total_frames;
     stats->free_frames = stats->total_frames - stats->used_frames;
 }
 
@@ -114,24 +115,38 @@ void pmm_reserve_early_memory() {
 
 void pmm_init_from_mmap() {
     kprint("  - PMM Initializing from Multiboot2 memory map...\n");
+    uint64_t max_phys = 0x8000000; // 128MB fallback
+    if (boot_mmap_info.count > 0) {
+        max_phys = 0;
+        for (uint32_t i = 0; i < boot_mmap_info.count; i++) {
+            uint64_t end = boot_mmap_info.entries[i].addr + boot_mmap_info.entries[i].len;
+            if (end > max_phys) max_phys = end;
+        }
+    }
+
+    total_frames = (uint32_t)(max_phys / 0x1000);
+    kprint("    Total RAM detected: ");
+    char s[20]; hex64_to_ascii(max_phys, s); kprint(s); kprint(" (");
+    char s2[16]; hex_to_ascii(total_frames, s2); kprint(s2); kprint(" frames)\n");
+
+    // Dynamic allocation of PMM structures
+    frame_bitmap = (uint32_t*)kmalloc((total_frames / 32 + 1) * 4, 1, NULL);
+    frame_ref_count = (uint8_t*)kmalloc(total_frames, 1, NULL);
+    memory_set((uint8_t*)frame_bitmap, 0, (total_frames / 32 + 1) * 4);
+    memory_set((uint8_t*)frame_ref_count, 0, total_frames);
+
     if (boot_mmap_info.count == 0) {
-        kprint("    WARNING: No memory map found, assuming 128MB\n");
+        kprint("    WARNING: No memory map found, using fallback\n");
         return;
     }
 
-    uint32_t usable_count = 0;
     for (uint32_t i = 0; i < boot_mmap_info.count; i++) {
-        if (boot_mmap_info.entries[i].type == 1) { // Usable RAM
-            usable_count++;
-            // We could mark these as available in the bitmap, 
-            // but the current PMM starts with everything "available" (0)
-            // and we set bits for "used".
-        } else {
+        if (boot_mmap_info.entries[i].type != 1) { // NOT Usable RAM
             // Reserve non-usable regions
             phys_addr_t start = boot_mmap_info.entries[i].addr;
             phys_addr_t end = start + boot_mmap_info.entries[i].len;
             for (phys_addr_t p = (start & ~0xFFFULL); p < end; p += 0x1000) {
-                pmm_set_frame(p / 0x1000);
+                pmm_set_frame((uint32_t)(p / 0x1000));
             }
         }
     }
@@ -160,9 +175,9 @@ void init_paging() {
     pmm_reserve_early_memory();
     pmm_is_ready = 1;
 
-    // 1. Identity map the low 16MB (for bootstrap/trampoline compatibility)
-    kprint("  - Identity mapping low 16MB...\n");
-    for (uint64_t i = 0; i < 0x1000000; i += 0x1000) {
+    // 1. Identity map the low 64MB (for bootstrap/trampoline compatibility)
+    kprint("  - Identity mapping low 64MB...\n");
+    for (uint64_t i = 0; i < 0x4000000; i += 0x1000) {
         mmu_map_page(kernel_directory, i, i, MMU_WRITABLE);
     }
 
@@ -202,7 +217,10 @@ void init_paging() {
 
     kprint("  - Switching to 64-bit kernel context...\n");
     mmu_switch(kernel_directory);
+    
+    // Transition to higher-half pointers
     mmu_high_active = 1;
+    kernel_directory->pml4_virt = (mmu_table_t*)((uintptr_t)kernel_directory->pml4_virt + PHYSMAP_BASE);
     current_directory = kernel_directory;
 
     kprint("  - Initializing kernel heap structure...\n");
