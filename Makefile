@@ -9,6 +9,7 @@ CC = gcc
 GDB = gdb
 # -g: Use debugging symbols in gcc
 CFLAGS = -g -ffreestanding -m32 -fno-pie -no-pie -fno-pic -Ikernel/include
+CFLAGS64 = -g -ffreestanding -m64 -fno-pie -no-pie -fno-pic -Ikernel/include -DARCH_X86_64
 USER_BINARIES = user/hello/hello.elf user/argtest/argtest.elf user/init/init.elf user/sh/sh.elf user/lappy/lappy.elf \
                 user/ls/ls.elf user/ps/ps.elf user/top/top.elf user/cat/cat.elf user/touch/touch.elf user/clear/clear.elf user/sleep/sleep.elf \
                 user/echo/echo.elf user/pwd/pwd.elf user/debug/debug.elf user/write/write.elf user/write_a/write_a.elf user/help/help.elf \
@@ -58,6 +59,19 @@ kernel/modules/fs_initrd/initrd_data.o: kernel/modules/fs_initrd/initrd_data.c
 # Used for debugging purposes
 $(BUILD_DIR)/kernel.elf: boot/multiboot2_entry.o boot/kernel_entry.o ${OBJ} | $(BUILD_DIR)
 	ld -m elf_i386 -o $@ -T linker.ld $^
+
+# 64-bit kernel ELF (for Phase 1 verification)
+# We re-run CC with CFLAGS64 for these objects.
+# For now, we only build a subset of core objects to verify the pipeline.
+OBJ64 = $(OBJ:.o=.o64)
+%.o64: %.c ${HEADERS}
+	${CC} ${CFLAGS64} -c $< -o $@
+
+%.o64: %.asm
+	nasm $< -f elf64 -o $@
+
+$(BUILD_DIR)/kernel64.elf: boot/multiboot2_entry.o64 boot/kernel_entry.o64 ${OBJ64} | $(BUILD_DIR)
+	ld -m elf_x86_64 -o $@ -T linker64.ld $^
 
 ISO_DIR = $(BUILD_DIR)/iso
 ISO_IMG = $(BUILD_DIR)/curls.iso
@@ -360,7 +374,7 @@ user/nano/nano.o: user/nano/nano.c
 
 clean:
 	rm -rf $(BUILD_DIR) $(LOG_DIR)
-	find . -name "*.o" -delete
+	find . -name "*.o" -o -name "*.o64" -delete
 	find . -name "*.elf" -not -path "./.git/*" -delete
 	rm -f kernel/modules/fs_initrd/initrd.bin
 	rm -f kernel/modules/fs_initrd/initrd_data.c
