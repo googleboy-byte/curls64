@@ -14,7 +14,8 @@ USER_BINARIES = user/hello/hello.elf user/argtest/argtest.elf user/init/init.elf
                 user/ls/ls.elf user/ps/ps.elf user/top/top.elf user/cat/cat.elf user/touch/touch.elf user/clear/clear.elf user/sleep/sleep.elf \
                 user/echo/echo.elf user/pwd/pwd.elf user/debug/debug.elf user/write/write.elf user/write_a/write_a.elf user/help/help.elf \
                 user/mkdir/mkdir.elf user/rm/rm.elf user/cp/cp.elf \
-                user/devs/devs.elf user/mount/mount.elf user/umount/umount.elf
+                user/devs/devs.elf user/mount/mount.elf user/umount/umount.elf \
+                user/hello/hello64.elf
 
 # Build output directories
 BUILD_DIR = build
@@ -56,6 +57,9 @@ kernel/modules/fs_initrd/initrd_data.c: $(USER_BINARIES) kernel/modules/fs_initr
 kernel/modules/fs_initrd/initrd_data.o: kernel/modules/fs_initrd/initrd_data.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
+kernel/modules/fs_initrd/initrd_data.o64: kernel/modules/fs_initrd/initrd_data.c
+	$(CC) $(CFLAGS64) -c $< -o $@
+
 # Used for debugging purposes
 $(BUILD_DIR)/kernel.elf: boot/multiboot2_entry.o boot/kernel_entry.o ${OBJ} | $(BUILD_DIR)
 	ld -m elf_i386 -o $@ -T linker.ld $^
@@ -91,6 +95,13 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                kernel/cpu/paging.o64 \
                kernel/arch/x86_64/cpu/interrupt64.o64 kernel/cpu/isr.o64 kernel/core/task.o64 kernel/cpu/ports.o64 kernel/cpu/timer.o64 kernel/cpu/idt.o64 kernel/arch/x86_64/cpu/stubs64.o64 \
                kernel/core/syscall_dispatch.o64 \
+               kernel/core/vfs_core.o64 \
+               kernel/core/kabi_bridge.o64 \
+               kernel/modules/fs_initrd/initrd.o64 \
+               kernel/modules/fs_initrd/initrd_data.o64 \
+               kernel/proc/exec.o64 \
+               kernel/fs/elf/elf_load.o64 \
+               kernel/fs/elf/elf_check.o64 \
                libc/mem.o64 \
                libc/string.o64 \
                libc/kheap.o64
@@ -138,6 +149,7 @@ $(IMG): $(USER_BINARIES) | $(BUILD_DIR)
 	mcopy -i $(IMG) user/devs/devs.elf ::/BIN/DEVS.ELF
 	mcopy -i $(IMG) user/mount/mount.elf ::/BIN/MOUNT.ELF
 	mcopy -i $(IMG) user/umount/umount.elf ::/BIN/UMOUNT.ELF
+	mcopy -i $(IMG) user/hello/hello64.elf ::/BIN/HELLO64.ELF
 	mcopy -i $(IMG) user/cp/cp.elf ::/BIN/CP.ELF
 	echo "Welcome to Curls OS!" > $(BUILD_DIR)/motd.txt
 	mcopy -i $(IMG) $(BUILD_DIR)/motd.txt ::/ETC/MOTD
@@ -262,9 +274,21 @@ user/lib/ulib.o: user/lib/ulib.c user/lib/ulib.h
 user/lib/syscall.o: user/lib/syscall.s
 	nasm -f elf32 $< -o $@
 
+user/lib/syscall64.o: user/lib/syscall64.s
+	nasm -f elf64 $< -o $@
+
+user/lib/uabi_syscalls64.o: user/lib/uabi_syscalls64.s
+	nasm -f elf64 $< -o $@
+
 # Program specific rules
 user/hello/hello.elf: user/hello/hello.o user/lib/syscall.o user/lib/user.ld
 	ld -m elf_i386 -o $@ -T user/lib/user.ld user/hello/hello.o user/lib/syscall.o
+
+user/hello/hello64.o: user/hello/hello64.c
+	$(CC) $(CFLAGS64) -c $< -o $@
+
+user/hello/hello64.elf: user/hello/hello64.o user/lib/uabi_syscalls64.o user/lib/user64.ld
+	ld -m elf_x86_64 -o $@ -T user/lib/user64.ld user/hello/hello64.o user/lib/uabi_syscalls64.o
 
 user/argtest/argtest.elf: user/argtest/argtest.o user/lib/syscall.o user/lib/user.ld
 	ld -m elf_i386 -o $@ -T user/lib/user.ld user/argtest/argtest.o user/lib/syscall.o

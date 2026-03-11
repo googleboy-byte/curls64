@@ -36,9 +36,11 @@ typedef struct __attribute__((packed)) {
 
 #define PT_LOAD 1
 
+#include <kernel/arch_types.h>
+
 typedef struct {
-    uint32_t entry;
-    uint32_t stack_top;
+    virt_addr_t entry;
+    virt_addr_t stack_top;
 } elf_load_result_t;
 
 #endif

@@ -33,6 +33,9 @@ void core_init() {
     
     cpu_init(0);
 
+    init_fs();
+    kabi_bridge_init();
+
 #ifdef ARCH_X86_64
     kprint("64-bit Core Init: GDT, TSS, Paging and PMM Ready.\n");
     isr_install();
@@ -40,8 +43,6 @@ void core_init() {
     init_tasking();
     init_syscalls();
 #else
-    init_fs();
-    kabi_bridge_init();
     init_tasking();
     init_syscalls();
 #endif
