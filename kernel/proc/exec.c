@@ -102,21 +102,18 @@ static virt_addr_t build_user_stack(page_directory_t *pd, char **argv) {
         *(uint64_t*)(PHYSMAP_BASE + phys) = argv_ptrs[i];
     }
 
-    virt_addr_t argv_array_ptr = sp;
-
-    // Push argv
-    sp -= 8;
-    {
-        page_t *p = get_page(sp, 0, pd);
-        uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
-        *(uint64_t*)(PHYSMAP_BASE + phys) = argv_array_ptr;
-    }
-
     // Push argc
     sp -= 8;
     {
         page_t *p = get_page(sp, 0, pd);
         uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
+        if (kabi_debug_enabled()) {
+            char s[20], sp_s[20];
+            hex64_to_ascii((uint64_t)argc, s);
+            hex64_to_ascii(sp, sp_s);
+            kprint("[EXEC] Writing argc "); kprint(s); kprint(" to user stack at 0x"); kprint(sp_s);
+            kprint(" (phys: 0x"); hex64_to_ascii(phys, s); kprint(s); kprint(")\n");
+        }
         *(uint64_t*)(PHYSMAP_BASE + phys) = (uint64_t)argc;
     }
 #else
@@ -156,17 +153,15 @@ static virt_addr_t build_user_stack(page_directory_t *pd, char **argv) {
     }
 #endif
 
-    // Push fake return address (always 0)
+#ifndef ARCH_X86_64
+    // Push fake return address (always 0) for 32-bit legacy CRT compatibility
     sp -= sizeof(virt_addr_t);
     {
         page_t *p = get_page(sp, 0, pd);
-#ifdef ARCH_X86_64
-        uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
-#else
         uintptr_t phys = PAGE_FRAME(p) + (sp % 0x1000);
-#endif
         *(virt_addr_t*)(PHYSMAP_BASE + phys) = 0;
     }
+#endif
 
     return sp;
 }
@@ -237,9 +232,31 @@ int sys_execve(const char *path, char **argv, registers_t *regs) {
         while (argv[argc]) argc++;
     }
 
+    if (kabi_debug_enabled()) {
+        char s[20];
+        kprint("[EXEC] Path: "); kprint(path); kprint("\n");
+        kprint("[EXEC] Entry: 0x"); hex64_to_ascii((uint64_t)res.entry, s); kprint(s); kprint("\n");
+        kprint("[EXEC] Argc: "); int_to_ascii((int)argc, s); kprint(s); kprint("\n");
+    }
+
     regs->rip = (uintptr_t)res.entry;
     regs->rsp = (uint64_t)new_sp;
     regs->rax = 0;
+
+    if (kabi_debug_enabled()) {
+        char s[20];
+        kprint("[EXEC] Final Stack Dump (User SP=0x"); hex64_to_ascii(regs->rsp, s); kprint(s); kprint("):\n");
+        for (int i = 0; i < 4; i++) {
+            uint64_t val = 0;
+            page_t *p = get_page(regs->rsp + i*8, 0, new_pd);
+            if (p && PAGE_PRESENT(*p)) {
+                uintptr_t phys = PAGE_FRAME(*p) + ((regs->rsp + i*8) % 0x1000);
+                val = *(uint64_t*)(PHYSMAP_BASE + phys);
+                kprint("  [+0x"); int_to_ascii(i*8, s); kprint(s); kprint("] = 0x");
+                hex64_to_ascii(val, s); kprint(s); kprint("\n");
+            }
+        }
+    }
     regs->rdi = argc;
     // In our build_user_stack, we return 'sp' which points to 'argc'.
     // System V ABI: argc is at (%rsp), argv is at (%rsp + 8)

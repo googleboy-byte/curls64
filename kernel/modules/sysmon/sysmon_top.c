@@ -10,8 +10,8 @@
  */
 
 // Module state
-static uint32_t last_update_tick = 0;
-static uint32_t total_tasks = 0;
+static uint64_t last_update_tick = 0;
+static uint64_t total_tasks = 0;
 
 /**
  * State name helper
@@ -30,12 +30,12 @@ static const char* get_state_name(uint8_t state) {
 /**
  * Count total tasks in the system using iterator
  */
-static uint32_t count_tasks(void) {
+static uint64_t count_tasks(void) {
     kabi_task_iter_t it;
     if (kabi_task_iter_begin(&it) != KABI_SUCCESS) return 0;
     
     kabi_task_info_t info;
-    uint32_t count = 0;
+    uint64_t count = 0;
     
     while (kabi_task_next(&it, &info)) {
         count++;
@@ -50,7 +50,7 @@ static uint32_t count_tasks(void) {
 static void display_header(void) {
     kabi_heap_stats_t heap;
     kabi_pmm_stats_t pmm;
-    uint32_t ticks = kabi_get_ticks();
+    uint64_t ticks = kabi_get_ticks();
     
     kabi_get_heap_stats(&heap);
     kabi_get_pmm_stats(&pmm);
@@ -107,7 +107,7 @@ static void print_padded(const char* str, int width) {
     int len = 0;
     while (str[len]) len++;
     
-    kprint((char*)str);
+    kprint(str);
     for (int i = len; i < width; i++) {
         kprint(" ");
     }
@@ -116,8 +116,8 @@ static void print_padded(const char* str, int width) {
 /**
  * Helper to print hex with padding
  */
-static void hex_padded(uint32_t val, int width) {
-    char str[16];
+static void hex_padded(uint64_t val, int width) {
+    char str[32];
     kabi_hex_to_ascii(val, str);
     print_padded(str, width);
 }

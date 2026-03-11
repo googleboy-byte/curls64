@@ -56,51 +56,27 @@ void kernel_main(void) {
     // 3. Start high-level orchestration
     kernel_shell();
 #else
-    kprint("[BOOT] 64-bit Core Foundation verified.\n");
+    kprint("[BOOT] x86_64 Sacred Core stabilized. Porting vision: Phase 8.\n");
+    
+    // 1. Initialize core drivers
+    screen_driver_init();
+    keyboard_driver_init();
+    uart_init();
+    kabi_irq_register(4, uart_callback); // IRQ4: Serial COM1
+    
+    // 2. Initialize core modules
+    sched_rr_init();
     fs_initrd_init();
 
-    kprint("[PHASE6] Testing int 0x80 syscall path (UABI_GETPID = 34)...\n");
-    uint64_t pid = 0;
-    asm volatile(
-        "mov $34, %%rax\n\t"   // UABI_GETPID
-        "xor %%rbx, %%rbx\n\t" // arg1
-        "xor %%rcx, %%rcx\n\t" // arg2
-        "xor %%rdx, %%rdx\n\t" // arg3
-        "int $0x80\n\t"
-        "mov %%rax, %0"
-        : "=r"(pid)
-        : 
-        : "rax", "rbx", "rcx", "rdx"
-    );
-    kprint("[PHASE6] GETPID returned: ");
-    char pidstr[16]; int_to_ascii((int)pid, pidstr); kprint(pidstr); kprint("\n");
-    if (pid == 1) {
-        kprint("[PHASE6] SUCCESS: int 0x80 syscall dispatching works on x86_64!\n");
-    } else {
-        kprint("[PHASE6] UNEXPECTED: PID != 1. Check syscall dispatch.\n");
-    }
-    
-    kprint("[PHASE7] Attempting 64-bit execve of /HELLO64.ELF via int 0x80...\n");
-    char *argv_t[] = {"/HELLO64.ELF", NULL};
-    
-    // Trigger UABI_EXEC (31) via int 0x80
-    // rax = 31, rbx = path, rcx = argv
-    asm volatile(
-        "mov $31, %%rax\n\t"
-        "mov %0, %%rbx\n\t"
-        "mov %1, %%rcx\n\t"
-        "int $0x80"
-        :
-        : "r"("/HELLO64.ELF"), "r"(argv_t)
-        : "rax", "rbx", "rcx", "rdx"
-    );
+    // 3. Initialize USB stack (stubs for now if not ported)
+    // usb_msc_init();
+    // usb_core_init();
 
-    // If we reach here, execve failed or it's returning (which it shouldn't on success)
-    kprint("[PHASE7] FAILED: int 0x80 returned to kernel! (Check IRETQ path)\n");
+    shell_init();
+    sysmon_init();
 
-    kprint("[BOOT] x86_64 Kernel Halted after Phase 7 verification.\n");
-    // Enable interrupts and idle
-    asm volatile("sti");
+    kprint("[BOOT] System composed. Transferring control to shell.\n");
+    kernel_shell();
 #endif
 
     // 4. Idle loop
@@ -110,9 +86,7 @@ void kernel_main(void) {
 }
 
 void panic(char *message) {
-#ifndef ARCH_X86_64
     ktrace_panic_snapshot(message);
-#endif
 
     // Emergency visual indication: prefer framebuffer if available, else VGA.
     if (boot_fb_info.present) {
@@ -127,6 +101,13 @@ void panic(char *message) {
             vga[i*2+1] = 0x4F; // White on Red
         }
     }
+
+    kprint("\n*** KERNEL PANIC: ");
+    kprint(message);
+    kprint(" ***\nSystem Halted.\n");
+
+    asm volatile("cli");
+    for (;;) asm volatile("hlt");
 }
 
 void assert(int condition, char *message) {

@@ -21,19 +21,19 @@ typedef struct {
 static vfs_mount_t mount_table[MAX_MOUNTS];
 static int num_mounts = 0;
 
-static uint32_t std_read(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer) {
+static uint64_t std_read(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer) {
     (void)node; (void)offset;
     // For now, we use the existing blocking get_line
     // This is simple but works for the current shell model
     char temp[256];
     kabi_get_line(temp);
-    uint32_t len = strlen(temp);
+    uint64_t len = strlen(temp);
     if (len > size) len = size;
     memory_copy((uint8_t*)temp, buffer, len);
     return len;
 }
 
-static uint32_t std_write(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer) {
+static uint64_t std_write(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer) {
     (void)node; (void)offset;
     // kprint expects a null-terminated string, but buffer might not be.
     // We create a temporary safe copy.
@@ -45,7 +45,7 @@ static uint32_t std_write(fs_node_t *node, uint32_t offset, uint32_t size, uint8
     return size;
 }
 
-static uint32_t mock_read(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer) {
+static uint64_t mock_read(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer) {
     if (!node->impl) return 0;
     uint8_t *data = node->impl;
     if (offset >= 1024) return 0;
@@ -54,7 +54,7 @@ static uint32_t mock_read(fs_node_t *node, uint32_t offset, uint32_t size, uint8
     return size;
 }
 
-static uint32_t mock_write(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer) {
+static uint64_t mock_write(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer) {
     if (!node->impl) {
         node->impl = kmalloc(1024, 0, 0);
         memory_set(node->impl, 0, 1024);
@@ -139,13 +139,13 @@ int sys_umount(const char *path) {
     return -1;
 }
 
-uint32_t read_fs(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer) {
+uint64_t read_fs(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer) {
     if (node && node->read != 0)
         return node->read(node, offset, size, buffer);
     return 0;
 }
 
-uint32_t write_fs(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer) {
+uint64_t write_fs(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer) {
     if (node && node->write != 0)
         return node->write(node, offset, size, buffer);
     return 0;
@@ -161,7 +161,7 @@ void close_fs(fs_node_t *node) {
         node->close(node);
 }
 
-struct dirent *readdir_fs(fs_node_t *node, uint32_t index) {
+struct dirent *readdir_fs(fs_node_t *node, uint64_t index) {
     if (node && (node->flags & 0x7) == FS_DIRECTORY && node->readdir != 0)
         return node->readdir(node, index);
     return 0;
@@ -526,7 +526,7 @@ int read(int fd, char *buf, int size) {
     // Permission check
     if (f->flags == O_WRONLY) return -1;
 
-    uint32_t res = read_fs(f->node, f->offset, size, (uint8_t*)buf);
+    uint64_t res = read_fs(f->node, f->offset, size, (uint8_t*)buf);
     f->offset += res;
     return (int)res;
 }
@@ -538,7 +538,7 @@ int write(int fd, const char *buf, int size) {
     // Permission check
     if (f->flags == O_RDONLY) return -1;
 
-    uint32_t res = write_fs(f->node, f->offset, size, (uint8_t*)buf);
+    uint64_t res = write_fs(f->node, f->offset, size, (uint8_t*)buf);
     if (res == 0 && size > 0 && (f->flags & O_CREAT)) {
         res = size; // Mock success for O_CREAT files
     }
@@ -550,7 +550,7 @@ int seek(int fd, int offset, int whence) {
     if (fd < 0 || fd >= MAX_FD || !current_task->fd_table[fd]) return -1;
     file_t *f = current_task->fd_table[fd];
     
-    uint32_t new_offset = f->offset;
+    uint64_t new_offset = f->offset;
     
     switch (whence) {
         case KABI_SEEK_SET:
@@ -567,8 +567,7 @@ int seek(int fd, int offset, int whence) {
     }
     
     // Bounds check: don't allow seeking before start
-    // (We also check sign if offset was signed, but new_offset is uint32)
-    if ((int32_t)new_offset < 0) return -1;
+    if ((int64_t)new_offset < 0) return -1;
 
     f->offset = new_offset;
     return (int)f->offset;
@@ -673,15 +672,15 @@ kabi_fs_node_t* kabi_vfs_resolve_path(const char *path) {
     return (kabi_fs_node_t*)vfs_resolve_path(path);
 }
 
-uint32_t kabi_vfs_read(kabi_fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer) {
+uint64_t kabi_vfs_read(kabi_fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer) {
     return read_fs((fs_node_t*)node, offset, size, buffer);
 }
 
-uint32_t kabi_vfs_write(kabi_fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer) {
+uint64_t kabi_vfs_write(kabi_fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer) {
     return write_fs((fs_node_t*)node, offset, size, buffer);
 }
 
-kabi_dirent_t* kabi_vfs_readdir(kabi_fs_node_t *node, uint32_t index) {
+kabi_dirent_t* kabi_vfs_readdir(kabi_fs_node_t *node, uint64_t index) {
     return (kabi_dirent_t*)readdir_fs((fs_node_t*)node, index);
 }
 

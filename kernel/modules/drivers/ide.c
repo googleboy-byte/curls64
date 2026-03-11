@@ -21,16 +21,22 @@
 #define IDE_CMD_WRITE   0x30
 #define IDE_CMD_CACHE_FLUSH 0xE7
 
-static void ide_wait_bsy() {
-    while (port_byte_in(IDE_STATUS) & IDE_STATUS_BSY);
+static int ide_wait_bsy() {
+    uint32_t timeout = 10000000;
+    while (timeout--) {
+        if (!(port_byte_in(IDE_STATUS) & IDE_STATUS_BSY)) return 0;
+    }
+    return -1;
 }
 
 static int ide_wait_drq() {
-    while (1) {
+    uint32_t timeout = 10000000;
+    while (timeout--) {
         uint8_t s = port_byte_in(IDE_STATUS);
         if (s & IDE_STATUS_ERR) return -1;
         if (s & IDE_STATUS_DRQ) return 0;
     }
+    return -1;
 }
 
 static void ide_delay_400ns() {
@@ -40,8 +46,8 @@ static void ide_delay_400ns() {
     port_byte_in(IDE_STATUS);
 }
 
-int ide_read_sector(uint32_t lba, uint8_t *buffer) {
-    ide_wait_bsy();
+int ide_read_sector(uint64_t lba, uint8_t *buffer) {
+    if (ide_wait_bsy() != 0) return -1;
     
     port_byte_out(IDE_DRIVE_HEAD, 0xE0 | ((lba >> 24) & 0x0F));
     ide_delay_400ns();
@@ -72,8 +78,8 @@ int ide_read_sector(uint32_t lba, uint8_t *buffer) {
     return 0;
 }
 
-int ide_write_sector(uint32_t lba, uint8_t *buffer) {
-    ide_wait_bsy();
+int ide_write_sector(uint64_t lba, uint8_t *buffer) {
+    if (ide_wait_bsy() != 0) return -1;
 
     port_byte_out(IDE_DRIVE_HEAD, 0xE0 | ((lba >> 24) & 0x0F));
     ide_delay_400ns();

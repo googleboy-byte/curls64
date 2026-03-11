@@ -19,6 +19,12 @@
 
 #define KABI_VERSION 0x0001
 
+/**
+ * STRATEGY: Conditionalized K-ABI v1 for x86_64.
+ * We use 'size_t' and 'uint64_t' to allow 64-bit native sizes while maintaining
+ * semantic compatibility with the existing v1 interface.
+ */
+
 /* --- Forward Declarations & Opaque Types --- */
 typedef void kabi_task_t;
 typedef void kabi_fs_node_t;
@@ -89,7 +95,7 @@ void kabi_get_pmm_stats(kabi_pmm_stats_t *stats);
  * @param flags Reserved for future permissions (read/write/exec).
  * @return KABI_SUCCESS on success, negative error code otherwise.
  */
-int kabi_map_user_memory(virt_addr_t addr, uint32_t len, uint32_t flags);
+int kabi_map_user_memory(virt_addr_t addr, size_t len, uint32_t flags);
 
 /**
  * @brief Request a system power-off.
@@ -174,9 +180,9 @@ typedef struct {
     virt_addr_t kernel_stack;
     uint32_t capabilities;
     uint32_t parent_id;
-    uint32_t ticks;
+    uint64_t ticks;              // Widened to 64-bit for x64
     uint8_t state;
-    uint8_t _padding[3];
+    uint8_t _padding[7];
 } kabi_task_info_t;
 
 /* Task States */
@@ -246,7 +252,7 @@ void kabi_scheduler_register(kabi_scheduler_ops_t *ops);
 typedef struct kabi_dirent {
     char name[128];
     uint32_t ino;
-    uint32_t size;
+    uint64_t size;               // Widened to 64-bit for x64
     uint8_t type;
     uint8_t attr;
 } kabi_dirent_t;
@@ -257,11 +263,11 @@ typedef struct kabi_dirent {
 #define KABI_SEEK_END  2
 
 typedef struct kabi_fs_ops {
-    uint32_t (*read)(kabi_fs_node_t* node, uint32_t offset, uint32_t size, uint8_t *buffer);
-    uint32_t (*write)(kabi_fs_node_t* node, uint32_t offset, uint32_t size, uint8_t *buffer);
+    uint64_t (*read)(kabi_fs_node_t* node, uint64_t offset, uint64_t size, uint8_t *buffer);
+    uint64_t (*write)(kabi_fs_node_t* node, uint64_t offset, uint64_t size, uint8_t *buffer);
     void (*open)(kabi_fs_node_t* node);
     void (*close)(kabi_fs_node_t* node);
-    kabi_dirent_t* (*readdir)(kabi_fs_node_t* node, uint32_t index);
+    kabi_dirent_t* (*readdir)(kabi_fs_node_t* node, uint64_t index);
     kabi_fs_node_t* (*finddir)(kabi_fs_node_t* node, char *name);
     void (*create)(kabi_fs_node_t* node, char *name, uint16_t mask);
     void (*mkdir)(kabi_fs_node_t* node, char *name, uint16_t mask);
@@ -273,9 +279,9 @@ void kabi_vfs_register(kabi_fs_ops_t *ops, const char *mountpoint);
 /* --- VFS User API --- */
 kabi_fs_node_t* kabi_vfs_get_root();
 kabi_fs_node_t* kabi_vfs_resolve_path(const char *path);
-uint32_t kabi_vfs_read(kabi_fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer);
-uint32_t kabi_vfs_write(kabi_fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer);
-kabi_dirent_t* kabi_vfs_readdir(kabi_fs_node_t *node, uint32_t index);
+uint64_t kabi_vfs_read(kabi_fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer);
+uint64_t kabi_vfs_write(kabi_fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer);
+kabi_dirent_t* kabi_vfs_readdir(kabi_fs_node_t *node, uint64_t index);
 kabi_fs_node_t* kabi_vfs_finddir(kabi_fs_node_t *node, char *name);
 
 /* --- Interrupt & Hardware --- */
@@ -291,8 +297,8 @@ void kabi_get_line(char *buf);
 void kabi_int_to_ascii(int n, char str[]);
 void kabi_hex_to_ascii(uint64_t n, char str[]);
 void kabi_clear_screen();
-int kabi_block_read(uint32_t dev, uint32_t lba, uint8_t *buf);
-int kabi_block_write(uint32_t dev, uint32_t lba, uint8_t *buf);
+int kabi_block_read(uint32_t dev, uint64_t lba, uint8_t *buf);
+int kabi_block_write(uint32_t dev, uint64_t lba, uint8_t *buf);
 
 /**
  * @brief Get the number of available block devices.
@@ -312,7 +318,7 @@ int kabi_get_device_name(int index, char *buf);
 uint64_t kabi_get_device_size(int index);
 
 /* --- Time --- */
-uint32_t kabi_get_ticks();
+uint64_t kabi_get_ticks();
 
 /* --- Debug & Testing --- */
 

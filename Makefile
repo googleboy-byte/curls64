@@ -10,6 +10,7 @@ GDB = gdb
 # -g: Use debugging symbols in gcc
 CFLAGS = -g -ffreestanding -m32 -fno-pie -no-pie -fno-pic -Ikernel/include
 CFLAGS64 = -g -ffreestanding -m64 -fno-pie -no-pie -fno-pic -Ikernel/include -DARCH_X86_64
+LD64 = ld -m elf_x86_64
 USER_BINARIES = user/hello/hello.elf user/argtest/argtest.elf user/init/init.elf user/sh/sh.elf user/lappy/lappy.elf \
                 user/ls/ls.elf user/ps/ps.elf user/top/top.elf user/cat/cat.elf user/touch/touch.elf user/clear/clear.elf user/sleep/sleep.elf \
                 user/echo/echo.elf user/pwd/pwd.elf user/debug/debug.elf user/write/write.elf user/write_a/write_a.elf user/help/help.elf \
@@ -97,11 +98,27 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                kernel/core/syscall_dispatch.o64 \
                kernel/core/vfs_core.o64 \
                kernel/core/kabi_bridge.o64 \
+               kernel/core/block_dev.o64 \
+               kernel/modules/drivers/screen.o64 \
+               kernel/modules/drivers/uart.o64 \
+               kernel/modules/drivers/keyboard.o64 \
+               kernel/modules/drivers/fb.o64 \
+               kernel/modules/drivers/ide.o64 \
+               kernel/modules/partition/mbr.o64 \
                kernel/modules/fs_initrd/initrd.o64 \
                kernel/modules/fs_initrd/initrd_data.o64 \
+               kernel/modules/sched_rr/sched_round_robin.o64 \
+               kernel/modules/shell/kernel_shell.o64 \
+               kernel/modules/sysmon/sysmon_top.o64 \
                kernel/proc/exec.o64 \
                kernel/fs/elf/elf_load.o64 \
-               kernel/fs/elf/elf_check.o64 \
+                kernel/fs/elf/elf_check.o64 \
+                kernel/fs/fat32/fat32_bpb.o64 \
+                kernel/fs/fat32/fat32_file.o64 \
+                kernel/fs/fat32/fat32_ls.o64 \
+                kernel/fs/fat32/fat32_fat.o64 \
+                kernel/ktrace/ktrace.o64 \
+               kernel/core/tests/core_tests/core_test64_v1.o64 \
                libc/mem.o64 \
                libc/string.o64 \
                libc/kheap.o64
@@ -234,17 +251,17 @@ run-grub-nox: iso $(IMG) $(FLASH_IMG) | $(LOG_DIR)
 	-d guest_errors,int,cpu_reset -D $(LOG_DIR)/qemu-grub-qemu-nox.log 2>&1 | tee $(LOG_DIR)/qemu-grub-serial-nox.log
 
 # Run minimal 64-bit verification kernel
-run-grub64-verify: $(BUILD_DIR)/kernel64_verify.elf | $(LOG_DIR) $(ISO_DIR)
+run-grub64-verify: $(BUILD_DIR)/kernel64_verify.elf $(IMG) | $(LOG_DIR) $(ISO_DIR)
 	cp $(BUILD_DIR)/kernel64_verify.elf $(ISO_DIR)/boot/kernel.elf
 	printf 'set timeout=0\nset default=0\nmenuentry \"Curls x64 Verify\" {\n  multiboot2 /boot/kernel.elf\n  boot\n}\n' > $(ISO_DIR)/boot/grub/grub.cfg
 	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
-	qemu-system-x86_64 -cdrom $(ISO_IMG) -boot d -m 256 -nographic -serial file:$(LOG_DIR)/qemu-verify-serial.log
+	qemu-system-x86_64 -cdrom $(ISO_IMG) -hda $(IMG) -boot d -m 256 -nographic -serial file:$(LOG_DIR)/qemu-verify-serial.log
 
-run-grub64-verify-debug: build/kernel64_verify.elf | $(LOG_DIR) $(ISO_DIR)
+run-grub64-verify-debug: build/kernel64_verify.elf $(IMG) | $(LOG_DIR) $(ISO_DIR)
 	cp $(BUILD_DIR)/kernel64_verify.elf $(ISO_DIR)/boot/kernel.elf
 	printf 'set timeout=0\nset default=0\nmenuentry \"Curls x64 Verify Debug\" {\n  multiboot2 /boot/kernel.elf\n  boot\n}\n' > $(ISO_DIR)/boot/grub/grub.cfg
 	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
-	qemu-system-x86_64 -cdrom $(ISO_IMG) -boot d -m 256 -nographic -serial file:$(LOG_DIR)/qemu-verify-serial.log -d int,cpu_reset -D $(LOG_DIR)/qemu-verify-debug.log
+	qemu-system-x86_64 -cdrom $(ISO_IMG) -hda $(IMG) -boot d -m 256 -serial mon:stdio -nographic -d int,cpu_reset -D $(LOG_DIR)/qemu-verify-debug.log
 
 live-usb: iso
 	sudo FORCE=$(FORCE) bash scripts/make_live_usb.sh $(ISO_IMG)
@@ -287,8 +304,8 @@ user/hello/hello.elf: user/hello/hello.o user/lib/syscall.o user/lib/user.ld
 user/hello/hello64.o: user/hello/hello64.c
 	$(CC) $(CFLAGS64) -c $< -o $@
 
-user/hello/hello64.elf: user/hello/hello64.o user/lib/uabi_syscalls64.o user/lib/user64.ld
-	ld -m elf_x86_64 -o $@ -T user/lib/user64.ld user/hello/hello64.o user/lib/uabi_syscalls64.o
+user/hello/hello64.elf: user/lib/uabi_syscalls64.o user/hello/hello64.o user/lib/user64.ld
+	$(LD64) -e _start -o $@ -T user/lib/user64.ld user/lib/uabi_syscalls64.o user/hello/hello64.o
 
 user/argtest/argtest.elf: user/argtest/argtest.o user/lib/syscall.o user/lib/user.ld
 	ld -m elf_i386 -o $@ -T user/lib/user.ld user/argtest/argtest.o user/lib/syscall.o

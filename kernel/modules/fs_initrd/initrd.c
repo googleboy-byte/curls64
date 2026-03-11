@@ -11,7 +11,7 @@ fs_node_t *root_nodes;
 int nroot_nodes;
 uintptr_t initrd_location;
 
-static uint32_t initrd_read(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer) {
+static uint64_t initrd_read(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer) {
     if (node->inode >= (uint32_t)nroot_nodes) return 0;
     initrd_file_header_t *header = &file_headers[node->inode];
     if (offset > header->length) return 0;
@@ -23,11 +23,13 @@ static uint32_t initrd_read(fs_node_t *node, uint32_t offset, uint32_t size, uin
     return size;
 }
 
-static struct dirent *initrd_readdir(fs_node_t *node, uint32_t index) {
+static struct dirent *initrd_readdir(fs_node_t *node, uint64_t index) {
     if ((node->flags & FS_DIRECTORY) && index < (uint32_t)nroot_nodes) {
         static struct dirent de;
         strcpy(de.name, root_nodes[index].name);
         de.ino = root_nodes[index].inode;
+        de.size = root_nodes[index].length;
+        de.type = root_nodes[index].flags & 0x7;
         return &de;
     }
     return 0;

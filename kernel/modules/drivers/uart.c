@@ -59,12 +59,12 @@ static int is_transmit_empty() {
 }
 
 void uart_send(char c) {
-    int timeout = 10000;
+    int timeout = 1000000;
     while (is_transmit_empty() == 0 && timeout > 0) timeout--;
     port_byte_out(COM1, c);
 }
 
-void uart_send_string(char *s) {
+void uart_send_string(const char *s) {
     for (int i = 0; s[i] != '\0'; i++) {
         uart_send(s[i]);
     }

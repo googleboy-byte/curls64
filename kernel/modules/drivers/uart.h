@@ -8,6 +8,6 @@
 void uart_init();
 void uart_callback(void *regs_ptr);
 void uart_send(char c);
-void uart_send_string(char *s);
+void uart_send_string(const char *s);
 
 #endif

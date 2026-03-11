@@ -28,16 +28,16 @@ struct fs_node;
 
 typedef struct {
     struct fs_node *node;
-    uint32_t offset;
+    uint64_t offset;
     uint32_t flags;
     uint32_t refcount;
 } file_t;
 
-typedef uint32_t (*read_type_t)(struct fs_node*, uint32_t, uint32_t, uint8_t*);
-typedef uint32_t (*write_type_t)(struct fs_node*, uint32_t, uint32_t, uint8_t*);
+typedef uint64_t (*read_type_t)(struct fs_node*, uint64_t, uint64_t, uint8_t*);
+typedef uint64_t (*write_type_t)(struct fs_node*, uint64_t, uint64_t, uint8_t*);
 typedef void (*open_type_t)(struct fs_node*);
 typedef void (*close_type_t)(struct fs_node*);
-typedef struct dirent * (*readdir_type_t)(struct fs_node*, uint32_t);
+typedef struct dirent * (*readdir_type_t)(struct fs_node*, uint64_t);
 typedef struct fs_node * (*finddir_type_t)(struct fs_node*, char *name);
 typedef void (*create_type_t)(struct fs_node*, char *name, uint16_t mask);
 typedef void (*mkdir_type_t)(struct fs_node*, char *name, uint16_t mask);
@@ -50,7 +50,7 @@ typedef struct fs_node {
     uint32_t gid;        // The owning group.
     uint32_t flags;      // Includes the node type. See #defines above.
     uint32_t inode;      // This is device-specific - provides a way for a filesystem to identify files.
-    uint32_t length;     // Size of the file, in bytes.
+    uint64_t length;     // Size of the file, in bytes.
     void *impl;          // An implementation-defined pointer.
     read_type_t read;
     write_type_t write;
@@ -72,8 +72,8 @@ fs_node_t *vfs_resolve_path(const char *path);
 
 struct dirent {
     char name[128]; // Filename.
-    uint32_t ino;     // Inode number. Required by POSIX.
-    uint32_t size;
+    uint64_t ino;     // Inode number. Required by POSIX.
+    uint64_t size;
     uint8_t type;
     uint8_t attr;
 };
@@ -84,11 +84,11 @@ extern fs_node_t *std_node; // Singleton for stdin/stdout/stderr
 void init_fs();
 
 // Standard read/write/open/close functions. Note that these are all just wrappers!
-uint32_t read_fs(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer);
-uint32_t write_fs(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer);
+uint64_t read_fs(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer);
+uint64_t write_fs(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer);
 void open_fs(fs_node_t *node, uint8_t read, uint8_t write);
 void close_fs(fs_node_t *node);
-struct dirent *readdir_fs(fs_node_t *node, uint32_t index);
+struct dirent *readdir_fs(fs_node_t *node, uint64_t index);
 fs_node_t *finddir_fs(fs_node_t *node, char *name);
 
 // FD Level Functions

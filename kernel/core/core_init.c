@@ -26,15 +26,16 @@ void core_init() {
     init_paging();
 #endif
     
-#ifndef ARCH_X86_64
     /* Initialize ktrace after paging */
     ktrace_init();
-#endif
     
     cpu_init(0);
 
+    kprint("  - Initializing VFS...\n");
     init_fs();
+    kprint("  - Initializing K-ABI Bridge...\n");
     kabi_bridge_init();
+    kprint("  - K-ABI Bridge ready.\n");
 
 #ifdef ARCH_X86_64
     kprint("64-bit Core Init: GDT, TSS, Paging and PMM Ready.\n");

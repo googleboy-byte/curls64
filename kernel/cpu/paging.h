@@ -95,9 +95,15 @@ void free_page_directory(page_directory_t *dir);
 void promote_to_user_table(page_directory_t *dir, virt_addr_t start_address, uint32_t size);
 
 typedef struct {
+#ifdef ARCH_X86_64
+    uint64_t total_frames;
+    uint64_t used_frames;
+    uint64_t free_frames;
+#else
     uint32_t total_frames;
     uint32_t used_frames;
     uint32_t free_frames;
+#endif
 } pmm_stats_t;
 
 void get_pmm_stats(pmm_stats_t *stats);

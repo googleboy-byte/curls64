@@ -4,8 +4,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
-typedef int (*block_read_type_t)(uint32_t lba, uint8_t *buf);
-typedef int (*block_write_type_t)(uint32_t lba, uint8_t *buf);
+typedef int (*block_read_type_t)(uint64_t lba, uint8_t *buf);
+typedef int (*block_write_type_t)(uint64_t lba, uint8_t *buf);
 
 #include "../modules/partition/mbr.h"
 
@@ -13,10 +13,10 @@ typedef struct {
     char name[32];
     block_read_type_t read_sector;
     block_write_type_t write_sector;
-    uint32_t size; // in sectors
+    uint64_t size; // in sectors
     int is_partition;
     uint32_t parent_dev;
-    uint32_t start_lba;
+    uint64_t start_lba;
 } kabi_block_device_t;
 
 void block_dev_init();
