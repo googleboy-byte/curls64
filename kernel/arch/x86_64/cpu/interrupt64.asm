@@ -5,7 +5,30 @@
 ; Common ISR code
 isr_common_stub:
     ; 1. Save CPU state (r15-r8, rbp, rdi, rsi, rdx, rcx, rbx, rax)
-    ; This must match registers_t in isr.h
+    ; Stack Frame Layout (Matches registers_t):
+    ; [rsp + 0x00] r15
+    ; [rsp + 0x08] r14
+    ; [rsp + 0x10] r13
+    ; [rsp + 0x18] r12
+    ; [rsp + 0x20] r11
+    ; [rsp + 0x28] r10
+    ; [rsp + 0x30] r9
+    ; [rsp + 0x38] r8
+    ; [rsp + 0x40] rbp
+    ; [rsp + 0x48] rdi
+    ; [rsp + 0x50] rsi
+    ; [rsp + 0x58] rdx
+    ; [rsp + 0x60] rcx
+    ; [rsp + 0x68] rbx
+    ; [rsp + 0x70] rax
+    ; [rsp + 0x78] int_no
+    ; [rsp + 0x80] err_code
+    ; [rsp + 0x88] rip
+    ; [rsp + 0x90] cs
+    ; [rsp + 0x98] rflags
+    ; [rsp + 0xA0] rsp
+    ; [rsp + 0xA8] ss
+
     push rax
     push rbx
     push rcx
@@ -27,7 +50,6 @@ isr_common_stub:
     call isr_handler
 
     ; Handle task switch if requested
-    ; [extern task_switch_rsp] would be 64-bit
     mov rax, [rel task_switch_rsp]
     test rax, rax
     jz .no_switch
@@ -119,7 +141,39 @@ irq_common_stub:
     jmp isr_common_stub
 %endmacro
 
-%macro IRQ 2
+; Generate all 256 ISR stubs
+%assign i 0
+%rep 8
+    ISR_NOERRCODE i
+    %assign i i+1
+%endrep
+
+ISR_ERRCODE 8
+%assign i 9
+ISR_NOERRCODE i
+%assign i 10
+
+%rep 5
+    ISR_ERRCODE i
+    %assign i i+1
+%endrep
+
+%assign i 15
+%rep 2
+    ISR_NOERRCODE i
+    %assign i i+1
+%endrep
+
+ISR_ERRCODE 17
+
+%assign i 18
+%rep 238
+    ISR_NOERRCODE i
+    %assign i i+1
+%endrep
+
+; IRQs are just jumps to isr32..47 essentially, but we use a distinct stub for irqX naming
+%macro IRQ_STUB 2
   global irq%1
   irq%1:
     push qword 0
@@ -127,58 +181,10 @@ irq_common_stub:
     jmp irq_common_stub
 %endmacro
 
-ISR_NOERRCODE 0
-ISR_NOERRCODE 1
-ISR_NOERRCODE 2
-ISR_NOERRCODE 3
-ISR_NOERRCODE 4
-ISR_NOERRCODE 5
-ISR_NOERRCODE 6
-ISR_NOERRCODE 7
-ISR_ERRCODE   8
-ISR_NOERRCODE 9
-ISR_ERRCODE   10
-ISR_ERRCODE   11
-ISR_ERRCODE   12
-ISR_ERRCODE   13
-ISR_ERRCODE   14
-ISR_NOERRCODE 15
-ISR_NOERRCODE 16
-ISR_ERRCODE   17
-ISR_NOERRCODE 18
-ISR_NOERRCODE 19
-ISR_NOERRCODE 20
-ISR_NOERRCODE 21
-ISR_NOERRCODE 22
-ISR_NOERRCODE 23
-ISR_NOERRCODE 24
-ISR_NOERRCODE 25
-ISR_NOERRCODE 26
-ISR_NOERRCODE 27
-ISR_NOERRCODE 28
-ISR_NOERRCODE 29
-ISR_NOERRCODE 30
-ISR_NOERRCODE 31
-
-IRQ 0, 32
-IRQ 1, 33
-IRQ 2, 34
-IRQ 3, 35
-IRQ 4, 36
-IRQ 5, 37
-IRQ 6, 38
-IRQ 7, 39
-IRQ 8, 40
-IRQ 9, 41
-IRQ 10, 42
-IRQ 11, 43
-IRQ 12, 44
-IRQ 13, 45
-IRQ 14, 46
-IRQ 15, 47
-
-global isr80
-isr80:
-    push qword 0
-    push qword 128 ; 0x80
-    jmp isr_common_stub
+%assign i 0
+%assign j 32
+%rep 16
+    IRQ_STUB i, j
+    %assign i i+1
+    %assign j j+1
+%endrep

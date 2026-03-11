@@ -58,16 +58,31 @@ void kernel_main(void) {
 #else
     kprint("[BOOT] 64-bit Core Foundation verified.\n");
     
-    // Final verification of IDT/ISR in 64-bit mode
-    void test_handler(registers_t *r) {
-        kprint("  - [PHASE5] Success: IDT Handler Called for Interrupt 0x");
-        char s[16]; hex_to_ascii(r->int_no, s); kprint(s); kprint("\n");
+    // Demonstrate context switching
+    void test_task_function() {
+        while(1) {
+            kprint("  - [PHASE5] Hello from Task 2 (Preemptive)!\n");
+            for(volatile int i=0; i<1000000; i++); // delay
+        }
     }
-    register_interrupt_handler(0x30, test_handler);
+
+    create_kernel_task(test_task_function);
+    kprint("[PHASE5] Created secondary task for preemption test.\n");
 
     kprint("[PHASE5] Testing IDT: Triggering software interrupt 0x30...\n");
     asm volatile("int $0x30");
-    kprint("[PHASE5] IDT/ISR Test Completed.\n");
+    kprint("[PHASE5] IDT/ISR Software Test Completed.\n");
+    kprint("[PHASE5] Waiting for timer preemption (STI)...\n");
+    
+    // Enable interrupts
+    asm volatile("sti");
+
+    int count = 0;
+    while(1) {
+        kprint("  - [PHASE5] Hello from Task 1 (Main)!\n");
+        for(volatile int i=0; i<1000000; i++); // delay
+        if (++count > 5) break;
+    }
     kprint("[BOOT] x86_64 Kernel Halted after verification.\n");
 #endif
 

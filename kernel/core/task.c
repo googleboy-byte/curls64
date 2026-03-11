@@ -215,14 +215,17 @@ task_t *create_kernel_task(void (*entry)(void)){
     *(--stack) = 0;                    // err_code
     *(--stack) = 32;                   // int_no (IRQ0 / Timer)
 
-    // push registers (rax, rbx, rcx, rdx, rsi, rdi, rbp, r8-r15)
-    *(--stack) = 0; // rax
+    // Push registers in the order interrupt64.asm POPS them (reverse push order):
+    // ASM pushes: rax, rbx, rcx, rdx, rsi, rdi, rbp, r8-r15
+    // So iretq frame on stack (top to bottom): r15, r14, ..., rax, int_no, err, rip...
+    // We build it from top (high addr) downward:
+    *(--stack) = 0; // rax  <- first pushed by asm, so lowest in stack (last here)
     *(--stack) = 0; // rbx
     *(--stack) = 0; // rcx
     *(--stack) = 0; // rdx
-    *(--stack) = 0; // rbp
-    *(--stack) = 0; // rdi
     *(--stack) = 0; // rsi
+    *(--stack) = 0; // rdi
+    *(--stack) = 0; // rbp
     *(--stack) = 0; // r8
     *(--stack) = 0; // r9
     *(--stack) = 0; // r10
@@ -230,12 +233,19 @@ task_t *create_kernel_task(void (*entry)(void)){
     *(--stack) = 0; // r12
     *(--stack) = 0; // r13
     *(--stack) = 0; // r14
-    *(--stack) = 0; // r15
+    *(--stack) = 0; // r15  <- last pushed by asm = top of saved frame
 
     new_task->user_esp = (virt_addr_t)stack;
     
-    kprint("\n");
-    
+#ifdef ARCH_X86_64
+    // On x86_64, link new task into the ready_queue circular list.
+    uint32_t f = irq_save();
+    task_t *tail = (task_t*)ready_queue;
+    while (tail->next && tail->next != ready_queue) tail = tail->next;
+    new_task->next = (task_t*)ready_queue;
+    tail->next = new_task;
+    irq_restore(f);
+#endif
     return new_task;
 }
 
@@ -828,7 +838,16 @@ void task_switch(registers_t *regs) {
         if (current_scheduler->pick_next(&out_task) == KABI_SUCCESS) {
             next_task = (task_t*)out_task;
         }
-    } 
+    } else {
+        // Fallback: simple round-robin walk
+        task_t *t = (task_t*)current_task->next;
+        int rotations = 0;
+        while (t && t != (task_t*)current_task) {
+            if (t->state == TASK_READY) { next_task = t; break; }
+            t = t->next;
+            if (++rotations > MAX_TASKS + 2) break;
+        }
+    }
 
     if (next_task == current_task) return;
 

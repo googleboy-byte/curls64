@@ -36,6 +36,7 @@ void core_init() {
 #ifdef ARCH_X86_64
     kprint("64-bit Core Init: GDT, TSS, Paging and PMM Ready.\n");
     isr_install();
+    irq_install();
     init_tasking();
 #else
     init_fs();
