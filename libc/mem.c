@@ -24,8 +24,8 @@ void memory_set(uint8_t *dest, uint8_t val, size_t len) {
 #ifndef ARCH_X86_64
 uintptr_t free_mem_addr = 0x100000;
 #else
-/* In 64-bit, kernel starts at 1MB. Let's start free memory at 2MB. */
-uintptr_t free_mem_addr = 0x200000;
+extern uint8_t _kernel_end[];
+uintptr_t free_mem_addr = (uintptr_t)_kernel_end;
 #endif
 /* Implementation of Kernel Heap */
 #include "kheap.h"
@@ -39,6 +39,9 @@ uint64_t kmalloc_int(size_t size, int align, phys_addr_t *phys_addr) {
         free_mem_addr &= ~0xFFFULL;
         free_mem_addr += 0x1000;
     }
+    // kprint("  - [KMem] Early alloc size: ");
+    // char sa[20]; hex64_to_ascii(size, sa); kprint(sa); kprint(" at ");
+    // hex64_to_ascii(free_mem_addr, sa); kprint(sa); kprint("\n");
     /* Save also the physical address */
     if (phys_addr) *phys_addr = (phys_addr_t)free_mem_addr;
 
@@ -58,6 +61,7 @@ uint64_t kmalloc_int(size_t size, int align, phys_addr_t *phys_addr) {
 
 void *kmalloc(size_t size, int align, phys_addr_t *phys_addr) {
     if (kheap != 0) {
+        // kprint("  - [KMem] kmalloc via heap\n");
         void *addr = alloc(size, (uint8_t)align, kheap);
         if (phys_addr) {
             page_t *page = get_page((virt_addr_t)addr, 0, kernel_directory);

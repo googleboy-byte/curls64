@@ -71,9 +71,9 @@ void expand(virt_addr_t new_size, heap_t *heap);
 virt_addr_t contract(virt_addr_t new_size, heap_t *heap);
 
 typedef struct {
-    uint32_t total_size;
-    uint32_t used_size;
-    uint32_t free_size;
+    size_t total_size;
+    size_t used_size;
+    size_t free_size;
     virt_addr_t max_addr;
 } heap_stats_t;
 

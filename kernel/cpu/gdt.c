@@ -1,5 +1,6 @@
 #include "gdt.h"
 #include "../../libc/mem.h"
+#include "../../libc/string.h"
 #include "../modules/drivers/screen.h"
 #include "../core/task.h"
 
@@ -11,7 +12,6 @@ extern void gdt_flush(uintptr_t);
 extern void tss_flush(uint32_t selector);
 
 #ifdef ARCH_X86_64
-// 5 basic segments (Null, KCS, KDS, UCS, UDS) + 2 slots per TSS
 gdt_entry_t gdt_entries[5 + (MAX_CPU * 2)];
 #else
 gdt_entry_t gdt_entries[6 + MAX_CPU];
@@ -60,28 +60,28 @@ static void write_tss(int32_t num, tss_entry_t *tss, uint16_t ss0, uint32_t esp0
 
     memory_set((uint8_t*)tss, 0, sizeof(tss_entry_t));
 
-    tss->ss0  = ss0;  // Kernel data segment
-    tss->esp0 = esp0; // Kernel stack pointer
+    tss->ss0  = ss0;
+    tss->esp0 = esp0;
 
-    // Here we set the cs, ss, ds, es, fs and gs entries in the TSS. These are actually
-    // the selectors which are internal to the processor, and not the ones in the GDT.
-    // However, they are setting up to the ring 3 selectors.
     tss->cs   = 0x0b; 
     tss->ss = tss->ds = tss->es = tss->fs = tss->gs = 0x13;
 }
 #endif
 
 void init_gdt() {
-    kprint("  - Setting up descriptors...\n");
+    kprint("  - Setting up GDT descriptors...\n");
 #ifdef ARCH_X86_64
     gdt_ptr.limit = (sizeof(gdt_entry64_t) * (5 + (MAX_CPU * 2))) - 1;
     gdt_ptr.base  = (uintptr_t)&gdt_entries;
 
     gdt_set_gate(0, 0, 0, 0, 0);                // Null segment
-    gdt_set_gate(1, 0, 0xFFFFFFFF, 0x9A, 0xAF); // Kernel Code: L bit set (0xA0)
-    gdt_set_gate(2, 0, 0xFFFFFFFF, 0x92, 0xAF); // Kernel Data
-    gdt_set_gate(3, 0, 0xFFFFFFFF, 0xFA, 0xAF); // User Code: L bit set
-    gdt_set_gate(4, 0, 0xFFFFFFFF, 0xF2, 0xAF); // User Data
+    gdt_set_gate(1, 0, 0xFFFFFFFF, 0x9A, 0xAF); // Kernel Code: G=1, L=1
+    gdt_set_gate(2, 0, 0xFFFFFFFF, 0x92, 0x8F); // Kernel Data: G=1, L=0
+    gdt_set_gate(3, 0, 0xFFFFFFFF, 0xFA, 0xAF); // User Code: G=1, L=1
+    gdt_set_gate(4, 0, 0xFFFFFFFF, 0xF2, 0x8F); // User Data: G=1, L=0
+
+    kprint("  - GDT Base: ");
+    char s[20]; hex64_to_ascii(gdt_ptr.base, s); kprint(s); kprint("\n");
 #else
     gdt_ptr.limit = (sizeof(gdt_entry_t) * (GDT_TSS_BASE + MAX_CPU)) - 1;
     gdt_ptr.base  = (uint32_t)&gdt_entries;
@@ -92,24 +92,26 @@ void init_gdt() {
     gdt_set_gate(3, 0, 0xFFFFFFFF, 0xFA, 0xCF); // User mode code segment
     gdt_set_gate(4, 0, 0xFFFFFFFF, 0xF2, 0xCF); // User mode data segment
 #endif
-    
-    // this became dangerous after updating write_tss to used *tss passed in argument
-    // instead of fixed global tss
-    // kprint("  - Initializing TSS...\n");
-    // write_tss(5, 0x10, 0x0);
 
     kprint("  - Flushing GDT...\n");
     gdt_flush((uintptr_t)&gdt_ptr);
-
-    // from now, i am keeping all tss to cpu init. let gdt be separate. 
-    // cpu init still not called so won't break the system, yet, hopefully.
-    kprint("  - GDT ready.\n");
+    kprint("  - GDT reloaded.\n");
 }
 
-void cpu_init(int cpu_id){
+void cpu_init(int cpu_id) {
+    kprint("  - CPU Init: ");
+    char sid[10]; int_to_ascii(cpu_id, sid); kprint(sid); kprint("\n");
+    
     cpu_local_t *cpu = &cpu_local[cpu_id];
     cpu->id = cpu_id;
+
+#ifdef ARCH_X86_64
+    cpu->kstack_base = (virt_addr_t)kmalloc(KERNEL_STACK_SIZE, 1, NULL);
+    kprint("  - KStack: ");
+    char s[20]; hex64_to_ascii(cpu->kstack_base, s); kprint(s); kprint("\n");
+#else
     cpu->kstack_base = (uint32_t)kmalloc(KERNEL_STACK_SIZE, 1, NULL);
+#endif
     cpu->kstack_top = cpu->kstack_base + KERNEL_STACK_SIZE;
     cpu->irq_depth = 0;
 
@@ -120,8 +122,9 @@ void cpu_init(int cpu_id){
     write_tss(GDT_TSS_BASE + cpu_id, &cpu->tss, 0x10, cpu->kstack_top);
     tss_flush((GDT_TSS_BASE + cpu_id) << 3);
 #endif
-    // poison stack
+
     memory_set((uint8_t*)cpu->kstack_base, 0xCC, KERNEL_STACK_SIZE);
+    kprint("  - CPU TSS loaded.\n");
 }
 
 #ifdef ARCH_X86_64

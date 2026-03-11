@@ -116,6 +116,7 @@ multiboot2_start:
 
 [bits 64]
 long_mode_entry:
+    cli              ; Ensure interrupts are off
     ; Set up 64-bit registers
     mov ax, gdt64.data
     mov ds, ax
@@ -165,5 +166,5 @@ pd:
 
 align 16
 initial_stack:
-    resb 4096
+    resb 0x10000 ; 64KB early stack
 initial_stack_top:

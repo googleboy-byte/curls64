@@ -1,0 +1,107 @@
+#include "gdt.h"
+#include "../../../../libc/mem.h"
+#include "../../../../libc/string.h"
+#include "../../../../libc/kheap.h"
+#include "../../../modules/drivers/screen.h"
+#include "../../../core/task.h"
+#include "../../../core/boot_info.h"
+
+extern void gdt_flush(uintptr_t);
+extern void tss_flush(uint32_t selector);
+
+// 5 standard entries (Null, KCode, KData, UCode, UData) 
+// + 2 slots per TSS (16-byte descriptors)
+gdt_entry64_t gdt_entries[5 + (MAX_CPU * 2)];
+gdt_ptr_t     gdt_ptr;
+
+// For now, we only support one CPU officially in this phase
+cpu_local_t cpu_local[1];
+
+static void gdt_set_gate(int32_t num, uint32_t limit, uint8_t access, uint8_t gran) {
+    gdt_entries[num].limit_low   = (limit & 0xFFFF);
+    gdt_entries[num].base_low    = 0;
+    gdt_entries[num].base_middle = 0;
+    gdt_entries[num].base_high   = 0;
+    gdt_entries[num].granularity = (limit >> 16) & 0x0F;
+    gdt_entries[num].granularity |= gran & 0xF0;
+    gdt_entries[num].access      = access;
+}
+
+static void write_tss64(int32_t num, tss64_entry_t *tss) {
+    uintptr_t base = (uintptr_t)tss;
+    uint32_t limit = sizeof(tss64_entry_t) - 1;
+
+    gdt_tss_descriptor64_t *desc = (gdt_tss_descriptor64_t *)&gdt_entries[num];
+    
+    desc->limit_low = (limit & 0xFFFF);
+    desc->base_low = (base & 0xFFFF);
+    desc->base_mid = (base >> 16) & 0xFF;
+    desc->access = 0x89; // Present, Executable, Accessible from Ring 0
+    desc->granularity = ((limit >> 16) & 0x0F);
+    desc->base_high = (base >> 24) & 0xFF;
+    desc->base_upper = (base >> 32) & 0xFFFFFFFF;
+    desc->reserved = 0;
+
+    memory_set((uint8_t*)tss, 0, sizeof(tss64_entry_t));
+    tss->iomap_base = sizeof(tss64_entry_t);
+}
+
+void init_gdt() {
+    kprint("  - [x64] Setting up GDT descriptors...\n");
+    
+    gdt_ptr.limit = (sizeof(gdt_entry64_t) * (5 + (MAX_CPU * 2))) - 1;
+    gdt_ptr.base  = (uintptr_t)&gdt_entries;
+
+    memory_set((uint8_t*)&gdt_entries, 0, sizeof(gdt_entries));
+
+    // Null segment
+    gdt_set_gate(0, 0, 0, 0);
+    // Kernel Code: Present, Ring 0, Code, Exec/Read (0x9A), Long Mode (0x20)
+    gdt_set_gate(1, 0xFFFFF, 0x9A, 0x20); 
+    // Kernel Data: Present, Ring 0, Data, Read/Write (0x92)
+    gdt_set_gate(2, 0xFFFFF, 0x92, 0x00);
+    // User Code: Present, Ring 3, Code, Exec/Read (0xFA), Long Mode (0x20)
+    gdt_set_gate(3, 0xFFFFF, 0xFA, 0x20);
+    // User Data: Present, Ring 3, Data, Read/Write (0xF2)
+    gdt_set_gate(4, 0xFFFFF, 0xF2, 0x00);
+
+    kprint("  - [x64] GDT Base: ");
+    char s[20]; hex64_to_ascii(gdt_ptr.base, s); kprint(s); kprint("\n");
+
+    kprint("  - [x64] Flushing GDT...\n");
+    gdt_flush((uintptr_t)&gdt_ptr);
+    kprint("  - [x64] GDT reloaded.\n");
+}
+
+void cpu_init(int cpu_id) {
+    kprint("  - [x64] CPU Init: ");
+    char sid[10]; int_to_ascii(cpu_id, sid); kprint(sid); kprint("\n");
+    
+    if (cpu_id >= MAX_CPU) return;
+
+    cpu_local_t *cpu = &cpu_local[cpu_id];
+    cpu->id = cpu_id;
+
+    cpu->kstack_base = (virt_addr_t)kmalloc(KERNEL_STACK_SIZE, 1, NULL);
+    
+    cpu->kstack_top = cpu->kstack_base + KERNEL_STACK_SIZE;
+    cpu->irq_depth = 0;
+
+    write_tss64(GDT_TSS_BASE + (cpu_id * 2), &cpu->tss);
+    
+    // Set initial kernel stack
+    cpu->tss.rsp0 = cpu->kstack_top;
+
+    kprint("  - [x64] Loading TSS selector: ");
+    int tss_sel = (GDT_TSS_BASE + (cpu_id * 2)) << 3;
+    char sel_s[10]; hex64_to_ascii(tss_sel, sel_s); kprint(sel_s); kprint("\n");
+    
+    tss_flush(tss_sel);
+
+    memory_set((uint8_t*)cpu->kstack_base, 0xCC, KERNEL_STACK_SIZE);
+    kprint("  - [x64] CPU TSS loaded.\n");
+}
+
+void set_kernel_stack(uint64_t stack) {
+    cpu_local[0].tss.rsp0 = stack;
+}
