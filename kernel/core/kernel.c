@@ -57,7 +57,8 @@ void kernel_main(void) {
     kernel_shell();
 #else
     kprint("[BOOT] 64-bit Core Foundation verified.\n");
-    
+    fs_initrd_init();
+
     kprint("[PHASE6] Testing int 0x80 syscall path (UABI_GETPID = 34)...\n");
     uint64_t pid = 0;
     asm volatile(
@@ -79,7 +80,25 @@ void kernel_main(void) {
         kprint("[PHASE6] UNEXPECTED: PID != 1. Check syscall dispatch.\n");
     }
     
-    kprint("[BOOT] x86_64 Kernel Halted after Phase 6 verification.\n");
+    kprint("[PHASE7] Attempting 64-bit execve of /HELLO64.ELF via int 0x80...\n");
+    char *argv_t[] = {"/HELLO64.ELF", NULL};
+    
+    // Trigger UABI_EXEC (31) via int 0x80
+    // rax = 31, rbx = path, rcx = argv
+    asm volatile(
+        "mov $31, %%rax\n\t"
+        "mov %0, %%rbx\n\t"
+        "mov %1, %%rcx\n\t"
+        "int $0x80"
+        :
+        : "r"("/HELLO64.ELF"), "r"(argv_t)
+        : "rax", "rbx", "rcx", "rdx"
+    );
+
+    // If we reach here, execve failed or it's returning (which it shouldn't on success)
+    kprint("[PHASE7] FAILED: int 0x80 returned to kernel! (Check IRETQ path)\n");
+
+    kprint("[BOOT] x86_64 Kernel Halted after Phase 7 verification.\n");
     // Enable interrupts and idle
     asm volatile("sti");
 #endif

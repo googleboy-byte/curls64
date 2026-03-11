@@ -40,6 +40,12 @@ static mmu_table_t* get_or_alloc_table(mmu_table_t *parent, int index, uint64_t 
         parent->entries[index] = phys | MMU_PRESENT | MMU_WRITABLE | MMU_USER;
         return new_table;
     }
+    
+    // If table exists but we need User access, ensure the directory entry has it
+    if (flags & MMU_USER) {
+        parent->entries[index] |= MMU_USER;
+    }
+    
     return (mmu_table_t*)phys_to_virt(parent->entries[index] & ~0xFFFULL);
 }
 
@@ -184,14 +190,34 @@ page_t *get_page(virt_addr_t address, int make, page_directory_t *dir) {
         int pd_idx   = (address >> 21) & 0x1FF;
         int pt_idx   = (address >> 12) & 0x1FF;
 
-        mmu_table_t *pdpt = get_or_alloc_table(pml4, pml4_idx, MMU_WRITABLE | MMU_PRESENT);
+        mmu_table_t *pdpt = get_or_alloc_table(pml4, pml4_idx, MMU_WRITABLE | MMU_PRESENT | MMU_USER);
         if (!pdpt) return NULL;
-        mmu_table_t *pd   = get_or_alloc_table(pdpt, pdpt_idx, MMU_WRITABLE | MMU_PRESENT);
+        mmu_table_t *pd   = get_or_alloc_table(pdpt, pdpt_idx, MMU_WRITABLE | MMU_PRESENT | MMU_USER);
         if (!pd) return NULL;
-        mmu_table_t *pt   = get_or_alloc_table(pd, pd_idx, MMU_WRITABLE | MMU_PRESENT);
+        mmu_table_t *pt   = get_or_alloc_table(pd, pd_idx, MMU_WRITABLE | MMU_PRESENT | MMU_USER);
         if (!pt) return NULL;
 
         return &pt->entries[pt_idx];
     }
     return NULL;
+}
+
+void switch_page_directory(page_directory_t *dir) {
+    mmu_switch(dir);
+}
+
+page_directory_t *clone_page_directory(page_directory_t *src) {
+    return mmu_clone_user(src);
+}
+
+void free_page_directory(page_directory_t *dir) {
+    if (!dir || dir == kernel_directory) return;
+    // TODO: Implement deep free for 64-bit tables
+    // For now we just leak the tables (bootstrap verification)
+    kfree(dir);
+}
+
+void promote_to_user_table(page_directory_t *dir, virt_addr_t start, uint32_t len) {
+    // 64-bit MMU map logic in exec.c already ensures user flags are set 
+    // for specific ranges. This is a no-op fallback for now.
 }

@@ -21,7 +21,7 @@ typedef mmu_context_t page_directory_t;
 #define PAGE_FRAME(p) ((p) & ~0xFFFULL)
 #define PAGE_PRESENT(p) ((p) & MMU_PRESENT)
 
-#define PAGE_SET_FRAME(p, f) (*(p) = ((*(p)) & 0xFFF) | (f))
+#define PAGE_SET_FRAME(p, f) (*(p) = ((*(p)) & 0xFFF) | ((uint64_t)(f) & ~0xFFFULL))
 #define PAGE_SET_FLAGS(p, flags) (*(p) = ((*(p)) & ~0xFFFULL) | (flags))
 #else
 typedef struct {

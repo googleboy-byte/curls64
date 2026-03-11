@@ -19,6 +19,7 @@ def make_initrd():
          b"\xCD\x80"              # int 0x80
          b"Long running...\n\0"),
         ("HELLO.ELF", "user/hello/hello.elf"),
+        ("HELLO64.ELF", "user/hello/hello64.elf"),
         ("ARGTEST.ELF", "user/argtest/argtest.elf"),
     ]
     
