@@ -168,8 +168,8 @@ void kernel_multiboot2_main64(void *mbi_addr, uint64_t magic) {
     
     kprint("Allocating PML4...\n");
     mmu_table_t *pml4_virt = (mmu_table_t*)kmalloc(sizeof(mmu_table_t), 1, &pml4_phys);
-    kprint("PML4 Phys: 0x");
-    char hex_pml4[16]; hex_to_ascii(pml4_phys, hex_pml4); kprint(hex_pml4); kprint("\n");
+    kprint("PML4 Phys: ");
+    char hex_pml4[20]; hex64_to_ascii(pml4_phys, hex_pml4); kprint(hex_pml4); kprint("\n");
     
     memory_set((uint8_t*)pml4_virt, 0, sizeof(mmu_table_t));
     verify_ctx.pml4_phys = pml4_phys;
@@ -191,15 +191,15 @@ void kernel_multiboot2_main64(void *mbi_addr, uint64_t magic) {
     mmu_switch(&verify_ctx);
     kprint("Switch successful!\n");
     
-    kprint("Attempting access at 0x");
-    char hex_virt[20]; hex_to_ascii(test_virt, hex_virt); kprint(hex_virt); kprint("...\n");
+    kprint("Attempting access at ");
+    char hex_virt[20]; hex64_to_ascii(test_virt, hex_virt); kprint(hex_virt); kprint("...\n");
     uint32_t *p = (uint32_t*)test_virt;
     uint32_t val = *p; // Should read data from physical 1MB
     
     // If we reach here, mapping worked!
     kprint("MMU High Canonical Mapping Success! Value: 0x");
     char hex[16];
-    hex_to_ascii(val, hex);
+    hex64_to_ascii(val, hex);
     kprint(hex);
     kprint("\n");
 

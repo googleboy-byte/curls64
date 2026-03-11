@@ -6,7 +6,7 @@
 #include <kernel/arch_types.h>
 
 #ifdef ARCH_X86_64
-#define PHYSMAP_BASE 0x0ULL
+#define PHYSMAP_BASE 0xFFFF800000000000ULL
 #else
 #define PHYSMAP_BASE 0xE0000000
 #endif

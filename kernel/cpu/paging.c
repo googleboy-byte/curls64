@@ -44,8 +44,7 @@ int pmm_test_frame(uint32_t frame) {
 }
 
 uint32_t pmm_first_free() {
-    extern uint32_t free_mem_addr;
-    uint32_t kernel_limit_frame = (free_mem_addr + 0xFFF) / 0x1000;
+    uintptr_t kernel_limit_frame = (free_mem_addr + 0xFFF) / 0x1000;
 
     for (uint32_t i = 0; i < MAX_FRAMES / 32; i++) {
         if (frame_bitmap[i] != 0xFFFFFFFF) {
@@ -105,10 +104,9 @@ void get_pmm_stats(pmm_stats_t *stats) {
 }
 
 void pmm_reserve_early_memory() {
-    extern uint32_t free_mem_addr;
     phys_addr_t end = (free_mem_addr + 0xFFF) & ~0xFFFULL;
-    kprint("  - PMM Reserving kernel memory: 0x0 to 0x");
-    char s[16]; hex_to_ascii(end, s); kprint(s); kprint("\n");
+    kprint("  - PMM Reserving kernel memory: 0x0 to ");
+    char s[20]; hex64_to_ascii(end, s); kprint(s); kprint("\n");
     for (phys_addr_t i = 0; i < end; i += 0x1000) {
         pmm_set_frame(i / 0x1000);
     }
@@ -140,13 +138,82 @@ void pmm_init_from_mmap() {
 }
 
 /* Defined in kheap.c/mem.c */
-extern uint32_t free_mem_addr;
+/* Defined in kheap.c/mem.c */
+extern uintptr_t free_mem_addr;
 // extern uint32_t kmalloc(size_t size, int align, uint32_t *phys_addr); // ALREADY IN mem.h
 
 
-#ifndef ARCH_X86_64
+#ifdef ARCH_X86_64
+void init_paging() {
+    kprint("Initializing 64-bit Paging (4-level MMU)...\n");
+
+    // Allocate PML4 for kernel
+    phys_addr_t pml4_phys;
+    kernel_directory = (mmu_context_t*)kmalloc(sizeof(mmu_context_t), 1, NULL);
+    kernel_directory->pml4_virt = (mmu_table_t*)kmalloc(sizeof(mmu_table_t), 1, &pml4_phys);
+    kernel_directory->pml4_phys = pml4_phys;
+    memory_set((uint8_t*)kernel_directory->pml4_virt, 0, sizeof(mmu_table_t));
+
+    kprint("  - Initializing Physical Memory Manager...\n");
+    // For x64, we will eventually make this dynamic. For now, use the mmap info.
+    pmm_init_from_mmap();
+    pmm_reserve_early_memory();
+    pmm_is_ready = 1;
+
+    // 1. Identity map the low 16MB (for bootstrap/trampoline compatibility)
+    kprint("  - Identity mapping low 16MB...\n");
+    for (uint64_t i = 0; i < 0x1000000; i += 0x1000) {
+        mmu_map_page(kernel_directory, i, i, MMU_WRITABLE);
+    }
+
+    // 2. Map PHYSMAP (Direct Map of all RAM)
+    // For now we map up to 128MB or what's in mmap
+    kprint("  - Mapping PHYSMAP to ");
+    char s[20]; hex64_to_ascii(PHYSMAP_BASE, s); kprint(s); kprint("\n");
+    uint64_t max_phys = 0x8000000; // 128MB default
+    if (boot_mmap_info.count > 0) {
+        for (uint32_t i = 0; i < boot_mmap_info.count; i++) {
+            uint64_t end = boot_mmap_info.entries[i].addr + boot_mmap_info.entries[i].len;
+            if (end > max_phys) max_phys = end;
+        }
+    }
+    for (uint64_t i = 0; i < max_phys; i += 0x1000) {
+        mmu_map_page(kernel_directory, PHYSMAP_BASE + i, i, MMU_WRITABLE);
+    }
+
+    // 3. Map Kernel Heap initial range
+    kprint("  - Mapping Kernel Heap to ");
+    hex64_to_ascii(KHEAP_START, s); kprint(s); kprint("\n");
+    for (uint64_t i = KHEAP_START; i < KHEAP_START + KHEAP_INITIAL_SIZE; i += 0x1000) {
+        phys_addr_t phys;
+        kmalloc_int(0x1000, 1, &phys);
+        mmu_map_page(kernel_directory, i, phys, MMU_WRITABLE);
+    }
+
+    // 4. Map Framebuffer if present
+    if (boot_fb_info.present) {
+        kprint("  - Mapping Framebuffer to ");
+        hex64_to_ascii(FB_VIRT_BASE, s); kprint(s); kprint("\n");
+        uint64_t fb_size = (uint64_t)boot_fb_info.pitch * (uint64_t)boot_fb_info.height;
+        for (uint64_t i = 0; i < fb_size; i += 0x1000) {
+            mmu_map_page(kernel_directory, FB_VIRT_BASE + i, boot_fb_info.addr + i, MMU_WRITABLE);
+        }
+    }
+
+    kprint("  - Switching to 64-bit kernel context...\n");
+    mmu_switch(kernel_directory);
+    mmu_high_active = 1;
+    current_directory = kernel_directory;
+
+    kprint("  - Initializing kernel heap structure...\n");
+    kheap = create_heap(KHEAP_START, KHEAP_START + KHEAP_INITIAL_SIZE, KHEAP_MAX_ADDR, 0, 0);
+
+    kprint("  - 64-bit Paging and Heap ready.\n");
+}
+#else
 void init_paging() {
     /* The size of physical memory. For the moment we assume 128MB */
+    uint32_t i;
     uint32_t mem_end_page = 0x8000000; // 128MB
     
     kprint("  - Initializing Physical Memory Manager (Bitmap)...\n");
@@ -239,7 +306,9 @@ void init_paging() {
         }
     }
 }
+#endif
 
+#ifndef ARCH_X86_64
 void switch_page_directory(page_directory_t *dir) {
     current_directory = dir;
     asm volatile("mov %0, %%cr3":: "r"(dir->physicalAddr));
@@ -421,6 +490,7 @@ static page_table_t *clone_table(page_table_t *src, uint32_t *physAddr, int cow_
     return table;
 }
 
+#ifndef ARCH_X86_64
 void promote_to_user_table(page_directory_t *dir, uint32_t start_address, uint32_t size) {
     uint32_t end_address = start_address + size;
     
@@ -510,4 +580,5 @@ void free_page_directory(page_directory_t *dir) {
     // Free the directory itself
     kfree(dir);
 }
+#endif
 #endif

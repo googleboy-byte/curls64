@@ -16,9 +16,16 @@
 #define PD_IDX(v)   (((v) >> 21) & 0x1FF)
 #define PT_IDX(v)   (((v) >> 12) & 0x1FF)
 
+// Flag to indicate if higher-half mapping (PHYSMAP) is active
+int mmu_high_active = 0;
+
 // Helper to get a virtual pointer to a physical page frame
 // Using the PHYSMAP concept from Phase 0
 static inline void* phys_to_virt(phys_addr_t phys) {
+    if (!mmu_high_active) {
+        // During bootstrap, we rely on identity mapping (16MB)
+        return (void*)((uintptr_t)phys);
+    }
     return (void*)((uintptr_t)PHYSMAP_BASE + (uintptr_t)phys);
 }
 
@@ -87,7 +94,7 @@ void mmu_switch(mmu_context_t *ctx) {
     asm volatile("mov %0, %%cr3" : : "r"(ctx->pml4_phys) : "memory");
 }
 
-static mmu_table_t* clone_table(mmu_table_t *src, uint64_t *physAddr, int cow_enabled) {
+static mmu_table_t* clone_table(mmu_table_t *src, uint64_t *physAddr, int level, int cow_enabled) {
     phys_addr_t phys;
     mmu_table_t *table = (mmu_table_t*)kmalloc(sizeof(mmu_table_t), 1, &phys);
     if (!table) return NULL;
@@ -95,8 +102,16 @@ static mmu_table_t* clone_table(mmu_table_t *src, uint64_t *physAddr, int cow_en
     memory_set((uint8_t*)table, 0, sizeof(mmu_table_t));
 
     for (int i = 0; i < 512; i++) {
-        if (src->entries[i] & MMU_PRESENT) {
-            // Shallow copy + reference count
+        if (!(src->entries[i] & MMU_PRESENT)) continue;
+
+        if (level < 3) {
+            // Internal table level (PML4, PDPT, PD)
+            uint64_t child_phys;
+            mmu_table_t *src_child = (mmu_table_t*)phys_to_virt(src->entries[i] & ~0xFFFULL);
+            mmu_table_t *dst_child = clone_table(src_child, &child_phys, level + 1, cow_enabled);
+            table->entries[i] = child_phys | (src->entries[i] & 0xFFF);
+        } else {
+            // Leaf level (PT)
             table->entries[i] = src->entries[i];
             
             if (cow_enabled && (src->entries[i] & MMU_USER) && (src->entries[i] & MMU_WRITABLE)) {
@@ -106,7 +121,7 @@ static mmu_table_t* clone_table(mmu_table_t *src, uint64_t *physAddr, int cow_en
                 table->entries[i] |= MMU_COW;
             }
             
-            frame_add_ref(table->entries[i] / 0x1000);
+            frame_add_ref((uint32_t)((table->entries[i] & ~0xFFFULL) / 0x1000));
         }
     }
     return table;
@@ -129,13 +144,13 @@ mmu_context_t *mmu_clone_user(mmu_context_t *src) {
         // For now we assume anything < 256 is user, >= 256 is kernel (simple split)
         if (i >= 256) {
             new_pml4->entries[i] = src->pml4_virt->entries[i];
-            // We don't refcount kernel tables typically as they are persistent
         } else {
             // Clone user PDPT
-            phys_addr_t pdpt_phys;
-            mmu_table_t *src_pdpt = phys_to_virt(src->pml4_virt->entries[i] & ~0xFFFULL);
-            mmu_table_t *new_pdpt = clone_table(src_pdpt, &pdpt_phys, 1);
-            new_pml4->entries[i] = pdpt_phys | MMU_PRESENT | MMU_WRITABLE | MMU_USER;
+            uint64_t pdpt_phys;
+            mmu_table_t *src_pdpt = (mmu_table_t*)phys_to_virt(src->pml4_virt->entries[i] & ~0xFFFULL);
+            // level 1 = PDPT
+            mmu_table_t *new_pdpt = clone_table(src_pdpt, &pdpt_phys, 1, 1);
+            new_pml4->entries[i] = pdpt_phys | (src->pml4_virt->entries[i] & 0xFFF);
         }
     }
 
@@ -154,12 +169,29 @@ page_t *get_page(virt_addr_t address, int make, page_directory_t *dir) {
     if (entry) return entry;
     
     if (make) {
-        // Map with default flags (Present|Writable|Supervisor)
-        // We don't have a physical frame here, so we map to 0 and let the 
-        // caller set the frame later (standard Curls pattern).
-        if (mmu_map_page(dir, address, 0, MMU_WRITABLE) == 0) {
-            return mmu_get_entry(dir, address);
-        }
+        // Just create the page table hierarchy without mapping a physical frame.
+        // We do this by calling mmu_get_entry's internal logic or a helper.
+        // For now, mmu_get_entry doesn't 'make'. 
+        // Let's use mmu_map_page with a special flag or just fix the traversal.
+        
+        // Actually, mmu_map_page with phys=0 sets the frame to 0. 
+        // We want a 'present=0' entry but with the table existing.
+        // Let's implement a small helper to ensure the hierarchy exists.
+        
+        mmu_table_t *pml4 = dir->pml4_virt;
+        int pml4_idx = (address >> 39) & 0x1FF;
+        int pdpt_idx = (address >> 30) & 0x1FF;
+        int pd_idx   = (address >> 21) & 0x1FF;
+        int pt_idx   = (address >> 12) & 0x1FF;
+
+        mmu_table_t *pdpt = get_or_alloc_table(pml4, pml4_idx, MMU_WRITABLE | MMU_PRESENT);
+        if (!pdpt) return NULL;
+        mmu_table_t *pd   = get_or_alloc_table(pdpt, pdpt_idx, MMU_WRITABLE | MMU_PRESENT);
+        if (!pd) return NULL;
+        mmu_table_t *pt   = get_or_alloc_table(pd, pd_idx, MMU_WRITABLE | MMU_PRESENT);
+        if (!pt) return NULL;
+
+        return &pt->entries[pt_idx];
     }
     return NULL;
 }

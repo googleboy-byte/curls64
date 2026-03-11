@@ -73,10 +73,10 @@ multiboot2_start:
     or eax, 0b11 ; Present | Writeable
     mov [pdpt], eax
     
-    ; PD[0..7] -> 2MB Pages (identity map 0..16MB)
+    ; PD[0..31] -> 2MB Pages (identity map 0..64MB)
     mov edi, pd
     mov eax, 0b10000011 ; Present | Writeable | Huge
-    mov ecx, 8
+    mov ecx, 32
 .map_loop:
     mov [edi], eax
     add edi, 8

@@ -5,8 +5,16 @@
 #include <stddef.h>
 #include <kernel/arch_types.h>
 
+#ifndef ARCH_X86_64
 #define KHEAP_START         0xC0000000
 #define KHEAP_INITIAL_SIZE  0x400000
+#define KHEAP_MAX_ADDR      0xD0000000
+#else
+#define KHEAP_START         0xFFFFA00000000000ULL
+#define KHEAP_INITIAL_SIZE  0x1000000 // 16MB initial
+#define KHEAP_MAX_ADDR      0xFFFFB00000000000ULL
+#endif
+
 #define HEAP_INDEX_SIZE     0x20000
 #define HEAP_MAGIC          0x123890AB
 #define HEAP_MIN_SIZE       0x70000

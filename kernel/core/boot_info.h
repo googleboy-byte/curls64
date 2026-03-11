@@ -32,5 +32,9 @@ extern boot_mmap_info_t boot_mmap_info;
 
 // Virtual base for kernel mapping of the framebuffer when present.
 // Chosen to avoid clashes with KHEAP (0xC0000000..0xD0000000) and PHYSMAP (0xE0000000..).
+#ifdef ARCH_X86_64
+#define FB_VIRT_BASE 0xFFFF900000000000ULL
+#else
 #define FB_VIRT_BASE 0xF0000000
+#endif
 

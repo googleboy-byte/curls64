@@ -36,6 +36,24 @@ void hex_to_ascii(uint32_t n, char str[]) {
     str[i] = '\0';
 }
 
+void hex64_to_ascii(uint64_t n, char str[]) {
+    str[0] = '0';
+    str[1] = 'x';
+    int i = 2;
+    char zeros = 0;
+
+    uint64_t tmp;
+    int j;
+    for (j = 60; j >= 0; j -= 4) {
+        tmp = (n >> j) & 0xF;
+        if (tmp == 0 && zeros == 0 && j > 0) continue;
+        zeros = 1;
+        if (tmp >= 0xA) str[i++] = (char)(tmp - 0xA + 'a');
+        else str[i++] = (char)(tmp + '0');
+    }
+    str[i] = '\0';
+}
+
 /* K&R */
 void reverse(char s[]) {
     int c, i, j;

@@ -64,6 +64,11 @@ mmu_context_t *mmu_clone_user(mmu_context_t *src);
 void mmu_switch(mmu_context_t *ctx);
 
 /**
+ * @brief Flag to indicate if higher-half mapping (PHYSMAP) is active.
+ */
+extern int mmu_high_active;
+
+/**
  * @brief Invalidate a single TLB entry.
  */
 static inline void mmu_invlpg(virt_addr_t addr) {
