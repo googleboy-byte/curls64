@@ -37,6 +37,7 @@ extern void isr29();
 extern void isr30();
 extern void isr31();
 extern void isr80();
+extern void isr128(); /* 0x80 = 128 decimal, used for syscall gate */
 /* IRQ definitions */
 extern void irq0();
 extern void irq1();
@@ -88,8 +89,11 @@ typedef struct {
 } registers_t;
 #else
 typedef struct {
+   /* Pushed by interrupt64.asm in order: rax, rbx, rcx, rdx, rsi, rdi, rbp, r8..r15
+    * Stack grows down, so r15 (last pushed) is at lowest address.
+    * Struct reads from lowest address upward: */
    uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
-   uint64_t rsi, rdi, rbp, rdx, rcx, rbx, rax;
+   uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
    uint64_t int_no, err_code;
    uint64_t rip, cs, rflags, rsp, ss;
 } registers_t;

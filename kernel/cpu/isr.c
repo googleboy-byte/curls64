@@ -147,8 +147,8 @@ void isr_install() {
     set_idt_gate(45, (uint64_t)irq13, 0x8E);
     set_idt_gate(46, (uint64_t)irq14, 0x8E);
     set_idt_gate(47, (uint64_t)irq15, 0x8E);
-    set_idt_gate(0x30, (uint64_t)isr80, 0x8E); // Reuse isr80 stub for test
-    set_idt_gate(0x80, (uint64_t)isr80, 0xEE); // Syscall gate gets DPL 3
+    set_idt_gate(0x30, (uint64_t)isr80, 0x8E); // Reuse isr80 stub for test (vector 80 decimal → int_no=80)
+    set_idt_gate(0x80, (uint64_t)isr128, 0xEE); // Syscall gate gets DPL3 (vector 128 decimal = 0x80)
 #endif
 
     set_idt(); // Load with ASM

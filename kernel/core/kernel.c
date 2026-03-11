@@ -58,32 +58,30 @@ void kernel_main(void) {
 #else
     kprint("[BOOT] 64-bit Core Foundation verified.\n");
     
-    // Demonstrate context switching
-    void test_task_function() {
-        while(1) {
-            kprint("  - [PHASE5] Hello from Task 2 (Preemptive)!\n");
-            for(volatile int i=0; i<1000000; i++); // delay
-        }
+    kprint("[PHASE6] Testing int 0x80 syscall path (UABI_GETPID = 34)...\n");
+    uint64_t pid = 0;
+    asm volatile(
+        "mov $34, %%rax\n\t"   // UABI_GETPID
+        "xor %%rbx, %%rbx\n\t" // arg1
+        "xor %%rcx, %%rcx\n\t" // arg2
+        "xor %%rdx, %%rdx\n\t" // arg3
+        "int $0x80\n\t"
+        "mov %%rax, %0"
+        : "=r"(pid)
+        : 
+        : "rax", "rbx", "rcx", "rdx"
+    );
+    kprint("[PHASE6] GETPID returned: ");
+    char pidstr[16]; int_to_ascii((int)pid, pidstr); kprint(pidstr); kprint("\n");
+    if (pid == 1) {
+        kprint("[PHASE6] SUCCESS: int 0x80 syscall dispatching works on x86_64!\n");
+    } else {
+        kprint("[PHASE6] UNEXPECTED: PID != 1. Check syscall dispatch.\n");
     }
-
-    create_kernel_task(test_task_function);
-    kprint("[PHASE5] Created secondary task for preemption test.\n");
-
-    kprint("[PHASE5] Testing IDT: Triggering software interrupt 0x30...\n");
-    asm volatile("int $0x30");
-    kprint("[PHASE5] IDT/ISR Software Test Completed.\n");
-    kprint("[PHASE5] Waiting for timer preemption (STI)...\n");
     
-    // Enable interrupts
+    kprint("[BOOT] x86_64 Kernel Halted after Phase 6 verification.\n");
+    // Enable interrupts and idle
     asm volatile("sti");
-
-    int count = 0;
-    while(1) {
-        kprint("  - [PHASE5] Hello from Task 1 (Main)!\n");
-        for(volatile int i=0; i<1000000; i++); // delay
-        if (++count > 5) break;
-    }
-    kprint("[BOOT] x86_64 Kernel Halted after verification.\n");
 #endif
 
     // 4. Idle loop

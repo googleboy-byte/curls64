@@ -71,6 +71,7 @@
 #include "../../include/kabi/kabi_v1.h"
 #include "../../libc/string.h"
 #include "vfs_core.h"  /* MAX_FD */
+#include "syscall_dispatch.h" /* REGS_RET */
 
 /* ╔══════════════════════════════════════════════════════════════╗
  * ║  K-ABI Validation (kernel callers — violations are BUGS)    ║
@@ -143,7 +144,7 @@ static inline void _validate_print_num(int n) {
             kprint("[VALIDATE FAIL] syscall ");                         \
             _validate_print_num(syscall_num);                           \
             kprint(": NULL pointer '" #ptr "'\n");                      \
-            regs->eax = (uint32_t)(-1);                                 \
+            REGS_RET(regs) = (uintptr_t)(-1);                                 \
             goto syscall_done;                                          \
         }                                                               \
     } while (0)
@@ -160,7 +161,7 @@ static inline void _validate_print_num(int n) {
             kprint(" out of range [0,");                                \
             _validate_print_num(MAX_FD);                                \
             kprint(")\n");                                              \
-            regs->eax = (uint32_t)(-1);                                 \
+            REGS_RET(regs) = (uintptr_t)(-1);                                 \
             goto syscall_done;                                          \
         }                                                               \
     } while (0)
@@ -176,7 +177,7 @@ static inline void _validate_print_num(int n) {
             kprint(": '" #val "' must be > 0 (got ");                   \
             _validate_print_num((int)(val));                            \
             kprint(")\n");                                              \
-            regs->eax = (uint32_t)(-1);                                 \
+            REGS_RET(regs) = (uintptr_t)(-1);                                 \
             goto syscall_done;                                          \
         }                                                               \
     } while (0)
@@ -190,7 +191,7 @@ static inline void _validate_print_num(int n) {
             kprint("[VALIDATE FAIL] syscall ");                         \
             _validate_print_num(syscall_num);                           \
             kprint(": '" #val "' out of range\n");                      \
-            regs->eax = (uint32_t)(-1);                                 \
+            REGS_RET(regs) = (uintptr_t)(-1);                                 \
             goto syscall_done;                                          \
         }                                                               \
     } while (0)

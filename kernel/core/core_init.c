@@ -38,6 +38,7 @@ void core_init() {
     isr_install();
     irq_install();
     init_tasking();
+    init_syscalls();
 #else
     init_fs();
     kabi_bridge_init();
