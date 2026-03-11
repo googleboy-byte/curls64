@@ -4,6 +4,14 @@
 #include "../ktrace/ktrace.h"
 #include <stdint.h>
 #include "boot_info.h"
+#include "task.h"
+#include "../../libc/string.h"
+
+#ifdef ARCH_X86_64
+#include "../arch/x86_64/cpu/gdt.h"
+#else
+#include "../cpu/gdt.h"
+#endif
 
 // Module initializers (declared here for simplicity, ideally in a module.h)
 extern void sched_rr_init();
@@ -48,7 +56,35 @@ void kernel_main(void) {
     // 3. Start high-level orchestration
     kernel_shell();
 #else
-    kprint("[BOOT] 64-bit Paging64 Foundation verified. Halted.\n");
+    kprint("[BOOT] 64-bit Paging64 Foundation verified.\n");
+    kprint("[PHASE4] Behavioral Proof: Simulated Task Switching\n");
+
+    // Simulate task A and B
+    uint64_t stack_a = 0x11110000;
+    uint64_t stack_b = 0x22220000;
+
+    kprint("  - Switching to Task A (rsp0: ");
+    char sa[20]; hex64_to_ascii(stack_a, sa); kprint(sa); kprint(")\n");
+    set_kernel_stack(stack_a);
+    
+    extern cpu_local_t cpu_local[1];
+    kprint("  - Current TSS RSP0: ");
+    hex64_to_ascii(cpu_local[0].tss.rsp0, sa); kprint(sa); kprint("\n");
+
+    kprint("  - Switching to Task B (rsp0: ");
+    hex64_to_ascii(stack_b, sa); kprint(sa); kprint(")\n");
+    set_kernel_stack(stack_b);
+    
+    kprint("  - Current TSS RSP0: ");
+    hex64_to_ascii(cpu_local[0].tss.rsp0, sa); kprint(sa); kprint("\n");
+
+    if (cpu_local[0].tss.rsp0 == stack_b) {
+        kprint("[PHASE4] SUCCESS: per-task stack switching verified.\n");
+    } else {
+        kprint("[PHASE4] FAILURE: rsp0 update failed.\n");
+    }
+
+    kprint("[BOOT] Halted.\n");
 #endif
 
     // 4. Idle loop

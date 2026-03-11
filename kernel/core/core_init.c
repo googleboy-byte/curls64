@@ -1,7 +1,11 @@
 #include "core_init.h"
 #include "../cpu/isr.h"
 #include "../cpu/paging.h"
+#ifdef ARCH_X86_64
+#include "../arch/x86_64/cpu/gdt.h"
+#else
 #include "../cpu/gdt.h"
+#endif
 #include "task.h"
 #include "syscall_dispatch.h"
 #include "vfs_core.h"
@@ -11,25 +15,31 @@
 #include "kabi_bridge.h"
 
 void core_init() {
-#ifndef ARCH_X86_64
+    kprint("Entering core_init()...\n");
+#ifdef ARCH_X86_64
+    init_paging();
+    init_gdt();
+#else
     init_gdt();
     isr_install();
     irq_install();
-#endif
     init_paging();
+#endif
     
 #ifndef ARCH_X86_64
     /* Initialize ktrace after paging */
     ktrace_init();
+#endif
     
     cpu_init(0);
+
+#ifndef ARCH_X86_64
     init_fs();
     kabi_bridge_init();
     init_tasking();
     init_syscalls();
 #else
-    // Minimal 64-bit bridge init if needed, for now just kprint
-    kprint("64-bit Core Init: Paging and PMM Ready.\n");
+    kprint("64-bit Core Init: GDT, TSS, Paging and PMM Ready.\n");
 #endif
 
 #ifndef ARCH_X86_64

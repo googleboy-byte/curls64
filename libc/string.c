@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 /**
- * K&R implementation
+ * K&R implementation of int_to_ascii
  */
 void int_to_ascii(int n, char str[]) {
     int i, sign;
@@ -37,21 +37,7 @@ void hex_to_ascii(uint64_t n, char str[]) {
 }
 
 void hex64_to_ascii(uint64_t n, char str[]) {
-    str[0] = '0';
-    str[1] = 'x';
-    int i = 2;
-    char zeros = 0;
-
-    uint64_t tmp;
-    int j;
-    for (j = 60; j >= 0; j -= 4) {
-        tmp = (n >> j) & 0xF;
-        if (tmp == 0 && zeros == 0 && j > 0) continue;
-        zeros = 1;
-        if (tmp >= 0xA) str[i++] = (char)(tmp - 0xA + 'a');
-        else str[i++] = (char)(tmp + '0');
-    }
-    str[i] = '\0';
+    hex_to_ascii(n, str);
 }
 
 /* K&R */
@@ -79,11 +65,9 @@ void append(char s[], char n) {
 
 void backspace(char s[]) {
     int len = strlen(s);
-    s[len-1] = '\0';
+    if (len > 0) s[len-1] = '\0';
 }
 
-/* K&R 
- * Returns <0 if s1<s2, 0 if s1==s2, >0 if s1>s2 */
 int strcmp(const char s1[], const char s2[]) {
     int i;
     for (i = 0; s1[i] == s2[i]; i++) {

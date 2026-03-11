@@ -76,7 +76,7 @@ static uint8_t inb(uint16_t port) {
 void serial_init() {
     outb(COM1 + 1, 0x00);    // Disable all interrupts
     outb(COM1 + 3, 0x80);    // Enable DLAB (set baud rate divisor)
-    outb(COM1 + 0, 0x03);    // Set divisor to 3 (lo byte) 38400 baud
+    outb(COM1 + 0, 0x01);    // Set divisor to 1 (lo byte) 115200 baud
     outb(COM1 + 1, 0x00);    //                  (hi byte)
     outb(COM1 + 3, 0x03);    // 8 bits, no parity, one stop bit
     outb(COM1 + 2, 0xC7);    // Enable FIFO, clear them, with 14-byte threshold
@@ -101,7 +101,7 @@ void kprint(const char *s) {
 
 void kernel_multiboot2_main64(void *mbi_addr, uint64_t magic) {
     serial_init();
-    kprint("--- Phase 3: Paging64 Foundation bringing up kernel ---\n");
+    kprint("\n\n*** CURLS X86_64 BOOTLOADER HANDOFF ***\n");
     
     boot_fb_info.present = 0;
     boot_mmap_info.count = 0;

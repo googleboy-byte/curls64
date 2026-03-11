@@ -1,6 +1,7 @@
 #include "kheap.h"
 #include "../kernel/cpu/paging.h"
 #include "mem.h"
+#include "string.h"
 #include "../kernel/core/task.h"
 
 /* Forward declarations */
@@ -31,8 +32,8 @@ heap_t *create_heap(virt_addr_t start, virt_addr_t end, virt_addr_t max, uint8_t
     start += sizeof(type_t)*HEAP_INDEX_SIZE;
 
     /* Make sure the start address is page-aligned. */
-    if ((start & 0xFFFFF000) != 0) {
-        start &= 0xFFFFF000;
+    if ((start & 0xFFF) != 0) {
+        start &= ~0xFFFULL;
         start += 0x1000;
     }
 
@@ -54,19 +55,19 @@ heap_t *create_heap(virt_addr_t start, virt_addr_t end, virt_addr_t max, uint8_t
     return heap;
 }
 
-static int32_t find_smallest_hole(uint32_t size, uint8_t page_align, heap_t *heap) {
+static int32_t find_smallest_hole(size_t size, uint8_t page_align, heap_t *heap) {
     uint32_t iterator = 0;
     while (iterator < heap->index.size) {
         header_t *header = (header_t *)lookup_ordered_array(iterator, &heap->index);
         /* If page aligned, we need to check alignment logic */
         if (page_align > 0) {
-            uintptr_t location = (uintptr_t)header;
-            int offset = 0;
-            if (((location+sizeof(header_t)) & 0xFFF) != 0)
-                offset = 0x1000 - (location+sizeof(header_t))%0x1000;
-            int hole_size = (int)header->size - offset;
+            virt_addr_t location = (virt_addr_t)header;
+            size_t offset = 0;
+            if (((location + sizeof(header_t)) & 0xFFF) != 0)
+                offset = 0x1000 - (location + sizeof(header_t)) % 0x1000;
+            size_t hole_size = (size_t)header->size - offset;
             /* Can we fit it? */
-            if (hole_size >= (int)size) break;
+            if (hole_size >= size) break;
         } else if (header->size >= size) {
             break;
         }
@@ -79,24 +80,20 @@ static int32_t find_smallest_hole(uint32_t size, uint8_t page_align, heap_t *hea
 }
 
 void *alloc(size_t size, uint8_t page_align, heap_t *heap) {
-    uint32_t new_size = (uint32_t)size + sizeof(header_t) + sizeof(footer_t);
+    size_t new_size = size + sizeof(header_t) + sizeof(footer_t);
     uintptr_t f = irq_save();
     int32_t iterator = find_smallest_hole(new_size, page_align, heap);
 
     if (iterator == -1) {
-        // No hole found. Expand the heap!
-        uint32_t old_size = heap->end_address - heap->start_address;
-        uint32_t new_size = old_size * 2;
-        if (new_size < old_size + new_size) { // check overflow?
-             // try double expansion
-        }
+        size_t old_size = (size_t)(heap->end_address - heap->start_address);
+        size_t new_heap_size = old_size * 2;
         
-        // Ensure new_size is enough for the request
-        if (new_size < old_size + size + sizeof(header_t) + sizeof(footer_t)) {
-             new_size = old_size + size + sizeof(header_t) + sizeof(footer_t);
+        // Ensure new_heap_size is enough for the request
+        if (new_heap_size < old_size + size + sizeof(header_t) + sizeof(footer_t)) {
+             new_heap_size = old_size + size + sizeof(header_t) + sizeof(footer_t);
         }
 
-        expand(new_size, heap);
+        expand(new_heap_size, heap);
         
         // Now that we expanded, we should have a new large hole at the end.
         // We need to re-search for a hole.
@@ -122,12 +119,12 @@ void *alloc(size_t size, uint8_t page_align, heap_t *heap) {
 
     // Alignment logic
     if (page_align && (orig_hole_pos + sizeof(header_t)) & 0xFFF) {
-        uint32_t new_pos = (orig_hole_pos + sizeof(header_t) + 0xFFF) & 0xFFFFF000;
-        uint32_t new_header_pos = new_pos - sizeof(header_t);
+        virt_addr_t new_pos = (orig_hole_pos + sizeof(header_t) + 0xFFF) & ~0xFFFULL;
+        virt_addr_t new_header_pos = new_pos - sizeof(header_t);
         
         // Create prefix hole
         header_t *pref_header = (header_t *)orig_hole_pos;
-        pref_header->size = new_header_pos - orig_hole_pos;
+        pref_header->size = (uint32_t)(new_header_pos - orig_hole_pos);
         pref_header->magic = HEAP_MAGIC;
         pref_header->is_hole = 1;
         footer_t *pref_footer = (footer_t *) (new_header_pos - sizeof(footer_t));
@@ -152,7 +149,7 @@ void *alloc(size_t size, uint8_t page_align, heap_t *heap) {
     header_t *block_header  = (header_t *)orig_hole_pos;
     block_header->magic     = HEAP_MAGIC;
     block_header->is_hole   = 0;
-    block_header->size      = new_size;
+    block_header->size      = (uint32_t)new_size;
     
     footer_t *block_footer  = (footer_t *) (orig_hole_pos + sizeof(header_t) + size);
     block_footer->magic     = HEAP_MAGIC;
@@ -227,7 +224,7 @@ void expand(virt_addr_t new_size, heap_t *heap) {
     header_t *hole_header = (header_t *)old_end;
     hole_header->magic = HEAP_MAGIC;
     hole_header->is_hole = 1;
-    hole_header->size = new_size - (old_end - heap->start_address);
+    hole_header->size = (uint32_t)(new_size - (old_end - heap->start_address));
 
     footer_t *hole_footer = (footer_t *) ( (uintptr_t)hole_header + hole_header->size - sizeof(footer_t) );
     hole_footer->magic = HEAP_MAGIC;
@@ -240,7 +237,7 @@ void expand(virt_addr_t new_size, heap_t *heap) {
 
 virt_addr_t contract(virt_addr_t new_size, heap_t *heap) {
     if (new_size & 0xFFF) {
-        new_size &= 0xFFFFF000;
+        new_size &= ~0xFFFULL;
         new_size += 0x1000;
     }
     if (new_size < HEAP_MIN_SIZE) new_size = HEAP_MIN_SIZE;
@@ -357,10 +354,10 @@ extern heap_t *kheap;
 
 void get_heap_stats(heap_stats_t *stats) {
     if (!kheap || !stats) return;
-    stats->total_size = kheap->end_address - kheap->start_address;
+    stats->total_size = (size_t)(kheap->end_address - kheap->start_address);
     stats->max_addr = kheap->max_address;
     
-    uint32_t hole_size = 0;
+    size_t hole_size = 0;
     for (uint32_t i = 0; i < kheap->index.size; i++) {
         header_t *header = (header_t *)lookup_ordered_array(i, &kheap->index);
         hole_size += header->size;

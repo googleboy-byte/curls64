@@ -80,8 +80,10 @@ kernel/arch/x86_64/mmu/mmu.o64: kernel/arch/x86_64/mmu/mmu.c
 $(BUILD_DIR)/kernel64.elf: kernel/arch/x86_64/boot/multiboot2_entry64.o64 kernel/core/boot_multiboot2_64.o64 ${OBJ64_CORE} | $(BUILD_DIR)
 	ld -m elf_x86_64 -o $@ -T linker64.ld $^
 
-# Minimal 64-bit kernel for Phase 3 verification
+# Minimal 64-bit kernel for Phase 3/4 verification
 OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
+               kernel/arch/x86_64/cpu/gdt_flush64.o64 \
+               kernel/arch/x86_64/cpu/gdt.o64 \
                kernel/core/boot_multiboot2_64.o64 \
                kernel/core/kernel.o64 \
                kernel/core/core_init.o64 \
@@ -228,7 +230,7 @@ run-grub64-verify-debug: build/kernel64_verify.elf | $(LOG_DIR) $(ISO_DIR)
 	cp $(BUILD_DIR)/kernel64_verify.elf $(ISO_DIR)/boot/kernel.elf
 	printf 'set timeout=0\nset default=0\nmenuentry \"Curls x64 Verify Debug\" {\n  multiboot2 /boot/kernel.elf\n  boot\n}\n' > $(ISO_DIR)/boot/grub/grub.cfg
 	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
-	qemu-system-x86_64 -cdrom $(ISO_IMG) -boot d -m 256 -nographic -serial mon:stdio -d int,cpu_reset -D $(LOG_DIR)/qemu-verify-debug.log
+	qemu-system-x86_64 -cdrom $(ISO_IMG) -boot d -m 256 -nographic -serial file:$(LOG_DIR)/qemu-verify-serial.log -d int,cpu_reset -D $(LOG_DIR)/qemu-verify-debug.log
 
 live-usb: iso
 	sudo FORCE=$(FORCE) bash scripts/make_live_usb.sh $(ISO_IMG)
@@ -408,7 +410,7 @@ user/nano/nano.o: user/nano/nano.c
 
 clean:
 	rm -rf $(BUILD_DIR) $(LOG_DIR)
-	find . -name "*.o" -o -name "*.o64" -delete
+	find . \( -name "*.o" -o -name "*.o64" \) -delete
 	find . -name "*.elf" -not -path "./.git/*" -delete
 	rm -f kernel/modules/fs_initrd/initrd.bin
 	rm -f kernel/modules/fs_initrd/initrd_data.c

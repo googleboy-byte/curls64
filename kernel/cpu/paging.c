@@ -234,6 +234,11 @@ void init_paging() {
     kprint("  - Initializing kernel heap structure...\n");
     kheap = create_heap(KHEAP_START, KHEAP_START + KHEAP_INITIAL_SIZE, KHEAP_MAX_ADDR, 0, 0);
 
+    // Upgrade ALL bootstrap pointers to higher-half PHYSMAP versions
+    kheap = (heap_t*)((uintptr_t)kheap + PHYSMAP_BASE);
+    frame_bitmap = (uint32_t*)((uintptr_t)frame_bitmap + PHYSMAP_BASE);
+    frame_ref_count = (uint8_t*)((uintptr_t)frame_ref_count + PHYSMAP_BASE);
+
     kprint("  - 64-bit Paging and Heap ready.\n");
 }
 #else

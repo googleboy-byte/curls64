@@ -2,9 +2,10 @@
 #define STRINGS_H
 
 #include <stdint.h>
+#include <stddef.h>
 
+void int_to_ascii(int n, char str[]);
 void hex_to_ascii(uint64_t n, char str[]);
-void hex64_to_ascii(uint64_t n, char str[]);
 void hex64_to_ascii(uint64_t n, char str[]);
 void reverse(char s[]);
 int strlen(const char s[]);
