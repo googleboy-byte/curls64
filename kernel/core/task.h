@@ -16,7 +16,11 @@
 #define TASK_ZOMBIE 3
 #define KERNEL_STACK_SIZE 0x2000
 #define TASK_MAGIC 0xCAFEBABE
+#ifdef ARCH_X86_64
+#define STACK_MAGIC 0xCCCCCCCCCCCCCCCCULL
+#else
 #define STACK_MAGIC 0xCCCCCCCC
+#endif
 #define MAX_TASKS 128
 
 // moving from proc owned kstack to exec context owned kstacks

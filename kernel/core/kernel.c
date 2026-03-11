@@ -56,35 +56,19 @@ void kernel_main(void) {
     // 3. Start high-level orchestration
     kernel_shell();
 #else
-    kprint("[BOOT] 64-bit Paging64 Foundation verified.\n");
-    kprint("[PHASE4] Behavioral Proof: Simulated Task Switching\n");
-
-    // Simulate task A and B
-    uint64_t stack_a = 0x11110000;
-    uint64_t stack_b = 0x22220000;
-
-    kprint("  - Switching to Task A (rsp0: ");
-    char sa[20]; hex64_to_ascii(stack_a, sa); kprint(sa); kprint(")\n");
-    set_kernel_stack(stack_a);
+    kprint("[BOOT] 64-bit Core Foundation verified.\n");
     
-    extern cpu_local_t cpu_local[1];
-    kprint("  - Current TSS RSP0: ");
-    hex64_to_ascii(cpu_local[0].tss.rsp0, sa); kprint(sa); kprint("\n");
-
-    kprint("  - Switching to Task B (rsp0: ");
-    hex64_to_ascii(stack_b, sa); kprint(sa); kprint(")\n");
-    set_kernel_stack(stack_b);
-    
-    kprint("  - Current TSS RSP0: ");
-    hex64_to_ascii(cpu_local[0].tss.rsp0, sa); kprint(sa); kprint("\n");
-
-    if (cpu_local[0].tss.rsp0 == stack_b) {
-        kprint("[PHASE4] SUCCESS: per-task stack switching verified.\n");
-    } else {
-        kprint("[PHASE4] FAILURE: rsp0 update failed.\n");
+    // Final verification of IDT/ISR in 64-bit mode
+    void test_handler(registers_t *r) {
+        kprint("  - [PHASE5] Success: IDT Handler Called for Interrupt 0x");
+        char s[16]; hex_to_ascii(r->int_no, s); kprint(s); kprint("\n");
     }
+    register_interrupt_handler(0x30, test_handler);
 
-    kprint("[BOOT] Halted.\n");
+    kprint("[PHASE5] Testing IDT: Triggering software interrupt 0x30...\n");
+    asm volatile("int $0x30");
+    kprint("[PHASE5] IDT/ISR Test Completed.\n");
+    kprint("[BOOT] x86_64 Kernel Halted after verification.\n");
 #endif
 
     // 4. Idle loop
