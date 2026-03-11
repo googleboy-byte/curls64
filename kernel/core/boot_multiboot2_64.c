@@ -14,6 +14,8 @@
  * It parses Multiboot2 tags using 64-bit safe pointers.
  */
 
+extern void kernel_main(void);
+
 #define MULTIBOOT2_BOOTLOADER_MAGIC 0x36D76289
 
 typedef struct multiboot_tag {
@@ -60,6 +62,7 @@ boot_mmap_info_t boot_mmap_info = {
 // --- Minimal Serial/Kprint for Verification ---
 #define COM1 0x3f8
 
+// outb/inb/serial_init/write_serial kept for bootloader initialization
 static void outb(uint16_t port, uint8_t val) {
     asm volatile("outb %0, %1" : : "a"(val), "Nd"(port));
 }
@@ -96,24 +99,9 @@ void kprint(const char *s) {
     }
 }
 
-void panic(char *message) {
-    kprint("\n!!! KERNEL PANIC !!!\n");
-    kprint(message);
-    kprint("\nSystem Halted.\n");
-    while (1) {
-        asm volatile("hlt");
-    }
-}
-
-// Dummy kernel_main for linker
-void kernel_main(void) {
-    kprint("Reached kernel_main() dummy success!\n");
-    while(1);
-}
-
 void kernel_multiboot2_main64(void *mbi_addr, uint64_t magic) {
     serial_init();
-    kprint("--- Phase 3: Paging64 Foundation (Persistent Context) ---\n");
+    kprint("--- Phase 3: Paging64 Foundation bringing up kernel ---\n");
     
     boot_fb_info.present = 0;
     boot_mmap_info.count = 0;
@@ -152,25 +140,9 @@ void kernel_multiboot2_main64(void *mbi_addr, uint64_t magic) {
             if (offset == 0 || tag->size == 0) break;
         }
     }
-
-    kprint("Establishing Persistent Paging64 Context...\n");
-    init_paging();
-
-    kprint("Verifying Higher-Half Mapping (PHYSMAP)...\n");
-    virt_addr_t test_virt = PHYSMAP_BASE + 0x100000;
-    uint32_t *p = (uint32_t*)test_virt;
-    uint32_t val = *p;
     
-    kprint("Value at PHYSMAP[1MB]: ");
-    char hex[20]; hex64_to_ascii(val, hex); kprint(hex); kprint("\n");
-
-    pmm_stats_t stats;
-    get_pmm_stats(&stats);
-    kprint("PMM Stats:\n");
-    kprint("  Total Frames: "); hex64_to_ascii(stats.total_frames, hex); kprint(hex); kprint("\n");
-    kprint("  Used Frames:  "); hex64_to_ascii(stats.used_frames, hex); kprint(hex); kprint("\n");
-    kprint("  Free Frames:  "); hex64_to_ascii(stats.free_frames, hex); kprint(hex); kprint("\n");
-
-    kprint("Transitioning to kernel_main()...\n");
+    // Call architecture-independent kernel entry
+    kprint("Calling kernel_main()...\n");
     kernel_main();
+    while(1);
 }

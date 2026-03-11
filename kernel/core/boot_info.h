@@ -21,7 +21,7 @@ typedef struct boot_mmap_entry {
     uint32_t _pad;
 } boot_mmap_entry_t;
 
-#define MAX_BOOT_MMAP_ENTRIES 32
+#define MAX_BOOT_MMAP_ENTRIES 128
 typedef struct boot_mmap_info {
     uint32_t count;
     boot_mmap_entry_t entries[MAX_BOOT_MMAP_ENTRIES];

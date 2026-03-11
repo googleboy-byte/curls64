@@ -26,7 +26,7 @@ mmu_context_t *current_directory = 0;
 /* x86_64: Dynamically sized from Multiboot2 memory map */
 uint8_t *frame_ref_count = 0;
 uint32_t *frame_bitmap = 0;
-uint32_t total_frames = 0;
+uint64_t total_frames = 0;
 int pmm_is_ready = 0;
 
 void pmm_set_frame(uint32_t frame) {
@@ -124,16 +124,17 @@ void pmm_init_from_mmap() {
         }
     }
 
-    total_frames = (uint32_t)(max_phys / 0x1000);
+    total_frames = max_phys / 0x1000;
     kprint("    Total RAM detected: ");
     char s[20]; hex64_to_ascii(max_phys, s); kprint(s); kprint(" (");
-    char s2[16]; hex_to_ascii(total_frames, s2); kprint(s2); kprint(" frames)\n");
+    char s2[20]; hex64_to_ascii(total_frames, s2); kprint(s2); kprint(" frames)\n");
 
     // Dynamic allocation of PMM structures
-    frame_bitmap = (uint32_t*)kmalloc((total_frames / 32 + 1) * 4, 1, NULL);
-    frame_ref_count = (uint8_t*)kmalloc(total_frames, 1, NULL);
-    memory_set((uint8_t*)frame_bitmap, 0, (total_frames / 32 + 1) * 4);
-    memory_set((uint8_t*)frame_ref_count, 0, total_frames);
+    // Ensure size_t is used for kmalloc to avoid 32-bit truncation of total_frames influence
+    frame_bitmap = (uint32_t*)kmalloc((size_t)((total_frames / 32 + 1) * 4), 1, NULL);
+    frame_ref_count = (uint8_t*)kmalloc((size_t)total_frames, 1, NULL);
+    memory_set((uint8_t*)frame_bitmap, 0, (size_t)((total_frames / 32 + 1) * 4));
+    memory_set((uint8_t*)frame_ref_count, 0, (size_t)total_frames);
 
     if (boot_mmap_info.count == 0) {
         kprint("    WARNING: No memory map found, using fallback\n");
@@ -209,9 +210,14 @@ void init_paging() {
     if (boot_fb_info.present) {
         kprint("  - Mapping Framebuffer to ");
         hex64_to_ascii(FB_VIRT_BASE, s); kprint(s); kprint("\n");
-        uint64_t fb_size = (uint64_t)boot_fb_info.pitch * (uint64_t)boot_fb_info.height;
+        
+        // Robust FB mapping: handle page alignment
+        uint64_t fb_phys_start = boot_fb_info.addr & ~0xFFFULL;
+        uint64_t offset = boot_fb_info.addr & 0xFFF;
+        uint64_t fb_size = (uint64_t)boot_fb_info.pitch * (uint64_t)boot_fb_info.height + offset;
+        
         for (uint64_t i = 0; i < fb_size; i += 0x1000) {
-            mmu_map_page(kernel_directory, FB_VIRT_BASE + i, boot_fb_info.addr + i, MMU_WRITABLE);
+            mmu_map_page(kernel_directory, FB_VIRT_BASE + i, fb_phys_start + i, MMU_WRITABLE);
         }
     }
 
@@ -220,7 +226,9 @@ void init_paging() {
     
     // Transition to higher-half pointers
     mmu_high_active = 1;
+    // Upgrade ALL bootstrap pointers to higher-half PHYSMAP versions
     kernel_directory->pml4_virt = (mmu_table_t*)((uintptr_t)kernel_directory->pml4_virt + PHYSMAP_BASE);
+    kernel_directory = (mmu_context_t*)((uintptr_t)kernel_directory + PHYSMAP_BASE);
     current_directory = kernel_directory;
 
     kprint("  - Initializing kernel heap structure...\n");

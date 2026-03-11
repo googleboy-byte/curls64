@@ -25,16 +25,16 @@ typedef void kabi_fs_node_t;
 typedef void kabi_page_directory_t;
 
 typedef struct {
-    uint32_t total_size;
-    uint32_t used_size;
-    uint32_t free_size;
-    uint32_t max_addr;
+    size_t      total_size;
+    size_t      used_size;
+    size_t      free_size;
+    virt_addr_t max_addr;
 } kabi_heap_stats_t;
 
 typedef struct {
-    uint32_t total_frames;
-    uint32_t used_frames;
-    uint32_t free_frames;
+    uint64_t total_frames;
+    uint64_t used_frames;
+    uint64_t free_frames;
 } kabi_pmm_stats_t;
 
 /* --- Common Error Codes --- */
@@ -286,10 +286,10 @@ void kabi_irq_register(uint8_t n, kabi_irq_handler_t handler);
 /**
  * @brief Output a null-terminated string to the system console.
  */
-void kprint(char *c);
+void kprint(const char *c);
 void kabi_get_line(char *buf);
 void kabi_int_to_ascii(int n, char str[]);
-void kabi_hex_to_ascii(uint32_t n, char str[]);
+void kabi_hex_to_ascii(uint64_t n, char str[]);
 void kabi_clear_screen();
 int kabi_block_read(uint32_t dev, uint32_t lba, uint8_t *buf);
 int kabi_block_write(uint32_t dev, uint32_t lba, uint8_t *buf);

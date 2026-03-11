@@ -5,8 +5,10 @@
 #include <stddef.h>
 #include <kernel/arch_types.h>
 
-void memory_copy(uint8_t *source, uint8_t *dest, int nbytes);
-void memory_set(uint8_t *dest, uint8_t val, uint32_t len);
+#include <stddef.h>
+#include <stdint.h>
+void memory_copy(uint8_t *source, uint8_t *dest, size_t nbytes);
+void memory_set(uint8_t *dest, uint8_t val, size_t len);
 int memory_compare(uint8_t *s1, uint8_t *s2, int n);
 
 /* At this stage there is no 'free' implemented. */

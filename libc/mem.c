@@ -1,7 +1,7 @@
 #include "mem.h"
 #include "../kernel/cpu/paging.h"
 
-void memory_copy(uint8_t *source, uint8_t *dest, int nbytes) {
+void memory_copy(uint8_t *source, uint8_t *dest, size_t nbytes) {
     int i;
     for (i = 0; i < nbytes; i++) {
         *(dest + i) = *(source + i);
@@ -16,7 +16,7 @@ int memory_compare(uint8_t *s1, uint8_t *s2, int n) {
     return 0;
 }
 
-void memory_set(uint8_t *dest, uint8_t val, uint32_t len) {
+void memory_set(uint8_t *dest, uint8_t val, size_t len) {
     uint8_t *temp = (uint8_t *)dest;
     for ( ; len != 0; len--) *temp++ = val;
 }

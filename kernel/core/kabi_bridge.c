@@ -76,7 +76,7 @@ void kabi_get_pmm_stats(kabi_pmm_stats_t *stats) {
     get_pmm_stats((pmm_stats_t*)stats);
 }
 
-int kabi_map_user_memory(uint32_t addr, uint32_t len, uint32_t flags) {
+int kabi_map_user_memory(virt_addr_t addr, uint32_t len, uint32_t flags) {
     (void)flags; // Currently unused semantic flag
     KABI_VALIDATE_NONZERO(len, "kabi_map_user_memory");
     KABI_VALIDATE_PTR(current_task, "kabi_map_user_memory");
@@ -124,7 +124,7 @@ void kabi_ps() {
     ps();
 }
 
-int kabi_spawn_process(uint32_t entry_point, uint32_t user_stack) {
+int kabi_spawn_process(virt_addr_t entry_point, virt_addr_t user_stack) {
     KABI_VALIDATE_NONZERO(entry_point, "kabi_spawn_process");
     KABI_VALIDATE_NONZERO(user_stack, "kabi_spawn_process");
     int pid = spawn_process(entry_point, user_stack);
@@ -138,7 +138,7 @@ int kabi_task_signal(int pid, kabi_signal_t signal) {
     return task_send_signal(pid, (int)signal);
 }
 
-int kabi_sigaction(int sig, uint32_t handler_eip) {
+int kabi_sigaction(int sig, virt_addr_t handler_eip) {
     /* Only SIGTERM and SIGINT can have handlers */
     if (sig != KABI_SIGTERM && sig != KABI_SIGINT) {
         kprint("[VALIDATE FAIL] kabi_sigaction: invalid signal ");
@@ -159,8 +159,8 @@ void kabi_kill_all_children() {
     task_send_sigint_foreground();
 }
 
-extern void first_user_entry_trampoline(uint32_t entry, uint32_t stack) __attribute__((noreturn));
-__attribute__((noreturn)) void kabi_jump_to_user_mode(uint32_t entry, uint32_t stack) {
+extern void first_user_entry_trampoline(virt_addr_t entry, virt_addr_t stack) __attribute__((noreturn));
+__attribute__((noreturn)) void kabi_jump_to_user_mode(virt_addr_t entry, virt_addr_t stack) {
     KABI_VALIDATE_NONZERO(entry, "kabi_jump_to_user_mode");
     KABI_VALIDATE_NONZERO(stack, "kabi_jump_to_user_mode");
     KABI_VALIDATE_ALIGNED(stack, 4, "kabi_jump_to_user_mode");
@@ -256,7 +256,7 @@ void kabi_int_to_ascii(int n, char str[]) {
     int_to_ascii(n, str);
 }
 
-void kabi_hex_to_ascii(uint32_t n, char str[]) {
+void kabi_hex_to_ascii(uint64_t n, char str[]) {
     KABI_VALIDATE_PTR(str, "kabi_hex_to_ascii");
     hex_to_ascii(n, str);
 }
@@ -336,7 +336,7 @@ int kabi_get_device_name(int index, char *buf) {
     return KABI_SUCCESS;
 }
 
-uint32_t kabi_get_device_size(int index) {
+uint64_t kabi_get_device_size(int index) {
     kabi_block_device_t *dev = block_dev_get_by_index(index);
     if (!dev) return 0;
     return dev->size;

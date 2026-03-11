@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-void hex_to_ascii(uint32_t n, char str[]);
+void hex_to_ascii(uint64_t n, char str[]);
 void hex64_to_ascii(uint64_t n, char str[]);
 void hex64_to_ascii(uint64_t n, char str[]);
 void reverse(char s[]);

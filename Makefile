@@ -83,6 +83,8 @@ $(BUILD_DIR)/kernel64.elf: kernel/arch/x86_64/boot/multiboot2_entry64.o64 kernel
 # Minimal 64-bit kernel for Phase 3 verification
 OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                kernel/core/boot_multiboot2_64.o64 \
+               kernel/core/kernel.o64 \
+               kernel/core/core_init.o64 \
                kernel/arch/x86_64/mmu/mmu.o64 \
                kernel/cpu/paging.o64 \
                libc/mem.o64 \
