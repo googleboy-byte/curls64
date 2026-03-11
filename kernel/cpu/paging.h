@@ -3,6 +3,7 @@
 
 #include "isr.h"
 #include <stdint.h>
+#include <kernel/arch_types.h>
 
 #define PHYSMAP_BASE 0xE0000000
 
@@ -42,7 +43,7 @@ typedef struct {
    /* The physical address of tablesPhysical. This comes into play
     * when we get our kernel heap allocated and the directory
     * may be in a different location in virtual memory. */
-   uint32_t physicalAddr;
+   phys_addr_t physicalAddr;
 } page_directory_t;
 
 /**
@@ -60,22 +61,22 @@ void switch_page_directory(page_directory_t *new);
  * Retrieve the specific page entry for a given address.
  * If make == 1, create the table if it's missing.
  */
-page_t *get_page(uint32_t address, int make, page_directory_t *dir);
+page_t *get_page(virt_addr_t address, int make, page_directory_t *dir);
 
 /**
  * Callback for page fault
  */
 void page_fault(registers_t *regs);
 
-void unmap_page(uint32_t address);
-extern void copy_page_physical(uint32_t src, uint32_t dest);
+void unmap_page(virt_addr_t address);
+extern void copy_page_physical(phys_addr_t src, phys_addr_t dest);
 
 /**
  * Creates a duplicate of the given page directory.
  */
 page_directory_t *clone_page_directory(page_directory_t *src);
 void free_page_directory(page_directory_t *dir);
-void promote_to_user_table(page_directory_t *dir, uint32_t start_address, uint32_t size);
+void promote_to_user_table(page_directory_t *dir, virt_addr_t start_address, uint32_t size);
 
 typedef struct {
     uint32_t total_frames;
