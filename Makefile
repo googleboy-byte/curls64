@@ -63,14 +63,22 @@ $(BUILD_DIR)/kernel.elf: boot/multiboot2_entry.o boot/kernel_entry.o ${OBJ} | $(
 # 64-bit kernel ELF (for Phase 1 verification)
 # We re-run CC with CFLAGS64 for these objects.
 # For now, we only build a subset of core objects to verify the pipeline.
-OBJ64 = $(OBJ:.o=.o64)
+OBJ64_CORE = $(filter-out kernel/core/boot_multiboot2.o64, $(OBJ:.o=.o64))
 %.o64: %.c ${HEADERS}
 	${CC} ${CFLAGS64} -c $< -o $@
 
 %.o64: %.asm
 	nasm $< -f elf64 -o $@
 
-$(BUILD_DIR)/kernel64.elf: boot/multiboot2_entry.o64 boot/kernel_entry.o64 ${OBJ64} | $(BUILD_DIR)
+# Specific rule for 64-bit entry point if not covered by wildcards
+kernel/arch/x86_64/boot/multiboot2_entry64.o64: kernel/arch/x86_64/boot/multiboot2_entry64.asm
+	nasm $< -f elf64 -o $@
+
+$(BUILD_DIR)/kernel64.elf: kernel/arch/x86_64/boot/multiboot2_entry64.o64 kernel/core/boot_multiboot2_64.o64 ${OBJ64_CORE} | $(BUILD_DIR)
+	ld -m elf_x86_64 -o $@ -T linker64.ld $^
+
+# Minimal 64-bit kernel for Phase 2 "First Light" verification
+$(BUILD_DIR)/kernel64_verify.elf: kernel/arch/x86_64/boot/multiboot2_entry64.o64 kernel/core/boot_multiboot2_64.o64 | $(BUILD_DIR)
 	ld -m elf_x86_64 -o $@ -T linker64.ld $^
 
 ISO_DIR = $(BUILD_DIR)/iso
@@ -195,6 +203,13 @@ run-grub-nox: iso $(IMG) $(FLASH_IMG) | $(LOG_DIR)
 	-m 256 \
 	-nographic \
 	-d guest_errors,int,cpu_reset -D $(LOG_DIR)/qemu-grub-qemu-nox.log 2>&1 | tee $(LOG_DIR)/qemu-grub-serial-nox.log
+
+# Run minimal 64-bit verification kernel
+run-grub64-verify: $(BUILD_DIR)/kernel64_verify.elf | $(LOG_DIR) $(ISO_DIR)
+	cp $(BUILD_DIR)/kernel64_verify.elf $(ISO_DIR)/boot/kernel.elf
+	printf 'set timeout=0\nset default=0\nmenuentry \"Curls x64 Verify\" {\n  multiboot2 /boot/kernel.elf\n  boot\n}\n' > $(ISO_DIR)/boot/grub/grub.cfg
+	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
+	qemu-system-x86_64 -cdrom $(ISO_IMG) -boot d -m 256 -nographic -serial mon:stdio
 
 live-usb: iso
 	sudo FORCE=$(FORCE) bash scripts/make_live_usb.sh $(ISO_IMG)
