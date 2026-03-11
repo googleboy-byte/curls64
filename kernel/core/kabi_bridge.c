@@ -24,22 +24,24 @@ static int kabi_debug_mode = 0;
 /* --- Demo RAM Disk Implementation --- */
 static uint8_t demo_ramdisk[2 * 512]; // 2 sectors
 
-static int ramdisk_read(uint32_t lba, uint8_t *buf) {
+static int ramdisk_read(uint64_t lba, uint8_t *buf) {
     if (lba >= 2) return -1;
     memory_copy(demo_ramdisk + (lba * 512), buf, 512);
     return 0;
 }
 
-static int ramdisk_write(uint32_t lba, uint8_t *buf) {
+static int ramdisk_write(uint64_t lba, uint8_t *buf) {
     if (lba >= 2) return -1;
     memory_copy(buf, demo_ramdisk + (lba * 512), 512);
     return 0;
 }
 
 void kabi_bridge_init() {
+    kprint("    - Initializing block devices...\n");
     block_dev_init();
 
     // Register dev0: IDE Primary
+    kprint("    - Registering IDE dev0...\n");
     kabi_block_device_t ide;
     memory_set((uint8_t*)&ide, 0, sizeof(ide));
     strcpy(ide.name, "dev0");
@@ -49,6 +51,7 @@ void kabi_bridge_init() {
     block_dev_register(ide);
 
     // Register dev2: RAM Disk
+    kprint("    - Registering RAM dev2...\n");
     kabi_block_device_t ram;
     memory_set((uint8_t*)&ram, 0, sizeof(ram));
     strcpy(ram.name, "dev2");
@@ -56,6 +59,7 @@ void kabi_bridge_init() {
     ram.write_sector = ramdisk_write;
     ram.size = 2;
     block_dev_register(ram);
+    kprint("    - Block devices registered.\n");
 
     // Fill ramdisk with some data for testing
     memory_set(demo_ramdisk, 'A', 512);
@@ -76,7 +80,7 @@ void kabi_get_pmm_stats(kabi_pmm_stats_t *stats) {
     get_pmm_stats((pmm_stats_t*)stats);
 }
 
-int kabi_map_user_memory(virt_addr_t addr, uint32_t len, uint32_t flags) {
+int kabi_map_user_memory(virt_addr_t addr, size_t len, uint32_t flags) {
     (void)flags; // Currently unused semantic flag
     KABI_VALIDATE_NONZERO(len, "kabi_map_user_memory");
     KABI_VALIDATE_PTR(current_task, "kabi_map_user_memory");
@@ -272,11 +276,11 @@ void kabi_get_line(char *buf) {
     get_line(buf);
 }
 
-uint32_t kabi_get_ticks() {
+uint64_t kabi_get_ticks() {
     return get_ticks();
 }
 
-int kabi_block_read(uint32_t dev_id, uint32_t lba, uint8_t *buf) {
+int kabi_block_read(uint32_t dev_id, uint64_t lba, uint8_t *buf) {
     KABI_VALIDATE_PTR(buf, "kabi_block_read");
     kabi_block_device_t *dev = block_dev_get_by_index(dev_id);
     if (!dev) {
@@ -289,7 +293,7 @@ int kabi_block_read(uint32_t dev_id, uint32_t lba, uint8_t *buf) {
         panic("[VALIDATE] KABI contract violated");
     }
     
-    uint32_t target_lba = lba;
+    uint64_t target_lba = lba;
     if (dev->is_partition) {
         target_lba += dev->start_lba;
     }
@@ -298,7 +302,7 @@ int kabi_block_read(uint32_t dev_id, uint32_t lba, uint8_t *buf) {
     return result;
 }
 
-int kabi_block_write(uint32_t dev_id, uint32_t lba, uint8_t *buf) {
+int kabi_block_write(uint32_t dev_id, uint64_t lba, uint8_t *buf) {
     KABI_VALIDATE_PTR(buf, "kabi_block_write");
     kabi_block_device_t *dev = block_dev_get_by_index(dev_id);
     if (!dev) {
@@ -311,7 +315,7 @@ int kabi_block_write(uint32_t dev_id, uint32_t lba, uint8_t *buf) {
         panic("[VALIDATE] KABI contract violated");
     }
 
-    uint32_t target_lba = lba;
+    uint64_t target_lba = lba;
     if (dev->is_partition) {
         target_lba += dev->start_lba;
     }

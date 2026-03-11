@@ -7,10 +7,10 @@
 typedef struct {
     uint32_t magic;
     uint32_t id;
-    uint32_t user_esp;
-    uint32_t user_eip;
-    uint32_t kernel_stack;
-    uint32_t kernel_stack_base;
+    virt_addr_t user_esp;
+    virt_addr_t user_eip;
+    virt_addr_t kernel_stack;
+    virt_addr_t kernel_stack_base;
     void *page_directory;
     void *parent;
     volatile uint8_t state;
@@ -23,9 +23,9 @@ typedef struct {
 extern volatile task_struct_t *ready_queue;
 extern volatile task_struct_t *current_task;
 
-extern void kprint(char*);
+extern void kprint(const char*);
 extern void int_to_ascii(int, char*);
-extern void hex_to_ascii(uint32_t, char*);
+extern void hex_to_ascii(uint64_t, char*);
 
 int round_robin_pick_next(kabi_task_t **out) {
     if (!ready_queue) {

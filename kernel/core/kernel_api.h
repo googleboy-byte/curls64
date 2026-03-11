@@ -26,7 +26,7 @@ void get_heap_stats(heap_stats_t *stats);
 
 /* --- Output / Debugging --- */
 void kprint(const char *c);
-void kprint_at(char *c, int col, int row);
+void kprint_at(const char *c, int col, int row);
 void clear_screen();
 void int_to_ascii(int n, char str[]);
 void hex_to_ascii(uint64_t n, char str[]);
@@ -43,8 +43,8 @@ void reap_zombies();
 /* --- Filesystem --- */
 #include "vfs_core.h"
 extern fs_node_t *fs_root;
-uint32_t read_fs(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer);
-struct dirent *readdir_fs(fs_node_t *node, uint32_t index);
+uint64_t read_fs(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer);
+struct dirent *readdir_fs(fs_node_t *node, uint64_t index);
 fs_node_t *finddir_fs(fs_node_t *node, char *name);
 void memory_copy(uint8_t *source, uint8_t *dest, size_t nbytes);
 void memory_set(uint8_t *dest, uint8_t val, size_t len);

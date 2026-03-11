@@ -107,9 +107,9 @@ void shell_user_input(char *input) {
                 kabi_int_to_ascii(i, s); kprint(s);
                 kprint(": ");
                 kprint(name);
-                uint32_t sectors = kabi_get_device_size(i);
+                uint64_t sectors = kabi_get_device_size(i);
                 if (sectors > 0) {
-                    uint32_t mb = sectors / 2048;
+                    uint64_t mb = sectors / 2048;
                     kprint("  (");
                     kabi_int_to_ascii(sectors, s); kprint(s);
                     kprint(" sectors, ");
@@ -165,7 +165,7 @@ void shell_user_input(char *input) {
                 if (kabi_debug_enabled()) {
                     kprint("[FATWRITE] Overwriting start of "); kprint(path); kprint("...\n");
                 }
-                uint32_t written = kabi_vfs_write(node, 0, len, (uint8_t*)msg);
+                uint64_t written = kabi_vfs_write(node, 0, len, (uint8_t*)msg);
                 if (written == len) {
                     if (kabi_debug_enabled()) {
                         char buf[32];
@@ -251,8 +251,8 @@ void shell_user_input(char *input) {
             
             if (node) {
                 uint8_t buf[513];
-                uint32_t offset = 0;
-                uint32_t sz;
+                uint64_t offset = 0;
+                uint64_t sz;
                 while ((sz = kabi_vfs_read(node, offset, 512, buf)) > 0) {
                     buf[sz] = 0;
                     kprint((char*)buf);

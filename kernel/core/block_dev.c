@@ -1,6 +1,7 @@
 #include "block_dev.h"
 #include "../../libc/string.h"
 #include "../../libc/mem.h"
+#include "kernel_api.h"
 
 #define MAX_BLOCK_DEVICES 16
 
@@ -15,12 +16,16 @@ void block_dev_init() {
 int block_dev_register(kabi_block_device_t dev) {
     if (device_count >= MAX_BLOCK_DEVICES) return -1;
     devices[device_count] = dev;
+    kprint("      - Registered "); kprint(dev.name); kprint(" as dev");
+    char sid[4]; int_to_ascii(device_count, sid); kprint(sid); kprint("\n");
     int idx = device_count;
     device_count++;
 
     /* If it's a new physical device (not a partition), scan for partitions */
     if (!dev.is_partition) {
+        kprint("      - Scanning partitions for "); kprint(dev.name); kprint("...\n");
         block_dev_scan_partitions(idx);
+        kprint("      - Partition scan finished.\n");
     }
 
     return idx;

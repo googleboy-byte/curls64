@@ -127,10 +127,29 @@ static mmu_table_t* clone_table(mmu_table_t *src, uint64_t *physAddr, int level,
                 table->entries[i] |= MMU_COW;
             }
             
-            frame_add_ref((uint32_t)((table->entries[i] & ~0xFFFULL) / 0x1000));
+            frame_add_ref((uint64_t)((table->entries[i] & ~0xFFFULL) / 0x1000));
         }
     }
     return table;
+}
+
+static void free_table(mmu_table_t *table, int level) {
+    if (!table) return;
+
+    for (int i = 0; i < 512; i++) {
+        if (!(table->entries[i] & MMU_PRESENT)) continue;
+
+        if (level < 3) {
+            // Recurse into child table
+            mmu_table_t *child = (mmu_table_t*)phys_to_virt(table->entries[i] & ~0xFFFULL);
+            free_table(child, level + 1);
+        } else {
+            // Leaf level: decrement frame refcount
+            uint64_t frame = (table->entries[i] & ~0xFFFULL) / 0x1000;
+            frame_remove_ref((uint32_t)frame); // Corrected function name
+        }
+    }
+    kfree(table);
 }
 
 mmu_context_t *mmu_clone_user(mmu_context_t *src) {
@@ -212,8 +231,22 @@ page_directory_t *clone_page_directory(page_directory_t *src) {
 
 void free_page_directory(page_directory_t *dir) {
     if (!dir || dir == kernel_directory) return;
-    // TODO: Implement deep free for 64-bit tables
-    // For now we just leak the tables (bootstrap verification)
+    
+    mmu_table_t *pml4 = (mmu_table_t*)dir->pml4_virt;
+    if (!pml4) {
+        kfree(dir);
+        return;
+    }
+
+    // Only free user-space half of the tables
+    for (int i = 0; i < 256; i++) {
+        if (pml4->entries[i] & MMU_PRESENT) {
+            mmu_table_t *pdpt = (mmu_table_t*)phys_to_virt(pml4->entries[i] & ~0xFFFULL);
+            free_table(pdpt, 1);
+        }
+    }
+
+    kfree(pml4);
     kfree(dir);
 }
 

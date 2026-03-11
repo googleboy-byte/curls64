@@ -31,7 +31,7 @@ static screen_mode_t screen_mode = SCREEN_MODE_VGA_TEXT;
  * Print a message on the specified location
  * If col, row, are negative, we will use the current offset
  */
-void kprint_at(char *message, int col, int row) {
+void kprint_at(const char *message, int col, int row) {
     /* Set cursor if col/row are negative */
     int offset;
     if (col >= 0 && row >= 0)
@@ -52,7 +52,7 @@ void kprint_at(char *message, int col, int row) {
     }
 }
 
-void kprint(char *message) {
+void kprint(const char *message) {
     kprint_at(message, -1, -1);
 }
 
@@ -139,20 +139,6 @@ int print_char(char c, int col, int row, char attr) {
         set_cursor_offset(offset);
         return offset;
     } else {
-        if (c == '\n') {
-            row = get_offset_row(offset);
-            offset = get_offset(0, row+1);
-        } else if (c == 0x08) { /* Backspace */
-            // if (offset > 0) offset -= 2;
-            vidmem[offset] = ' ';
-            vidmem[offset+1] = attr;
-        } else {
-            vidmem[offset] = c;
-            vidmem[offset+1] = attr;
-            offset += 2;
-        }
-
-        /* Check if the offset is over screen size and scroll */
         if (offset >= MAX_ROWS * MAX_COLS * 2) {
             int i;
             for (i = 1; i < MAX_ROWS; i++) 
@@ -165,6 +151,18 @@ int print_char(char c, int col, int row, char attr) {
             for (i = 0; i < MAX_COLS * 2; i++) last_line[i] = 0;
 
             offset -= 2 * MAX_COLS;
+        }
+
+        if (c == '\n') {
+            row = get_offset_row(offset);
+            offset = get_offset(0, row+1);
+        } else if (c == 0x08) { /* Backspace */
+            vidmem[offset] = ' ';
+            vidmem[offset+1] = attr;
+        } else {
+            vidmem[offset] = c;
+            vidmem[offset+1] = attr;
+            offset += 2;
         }
 
         set_cursor_offset(offset);

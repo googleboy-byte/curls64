@@ -92,7 +92,7 @@ void write_serial(char a) {
     outb(COM1, a);
 }
 
-void kprint(const char *s) {
+void boot_kprint(const char *s) {
     while (*s) {
         if (*s == '\n') write_serial('\r');
         write_serial(*s++);
@@ -101,7 +101,7 @@ void kprint(const char *s) {
 
 void kernel_multiboot2_main64(void *mbi_addr, uint64_t magic) {
     serial_init();
-    kprint("\n\n*** CURLS X86_64 BOOTLOADER HANDOFF ***\n");
+    boot_kprint("\n\n*** CURLS X86_64 BOOTLOADER HANDOFF ***\n");
     
     boot_fb_info.present = 0;
     boot_mmap_info.count = 0;
@@ -142,7 +142,7 @@ void kernel_multiboot2_main64(void *mbi_addr, uint64_t magic) {
     }
     
     // Call architecture-independent kernel entry
-    kprint("Calling kernel_main()...\n");
+    boot_kprint("Calling kernel_main()...\n");
     kernel_main();
     while(1);
 }

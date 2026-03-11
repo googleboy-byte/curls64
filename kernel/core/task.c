@@ -145,12 +145,11 @@ void init_tasking() {
     if (esp >= mb2_base && esp <= mb2_top) {
         current_task->kernel_stack_base = mb2_base;
         current_task->kernel_stack      = mb2_top;
-        current_task->user_esp          = mb2_top; // prevent esp null panic on boot
+        current_task->user_esp          = mb2_top;
     } else {
-        // Legacy bootloader stack from boot/switch_pm.asm
         current_task->kernel_stack_base = 0x80000;
         current_task->kernel_stack      = 0x90000;
-        current_task->user_esp          = 0x90000; // prevent esp null panic on boot
+        current_task->user_esp          = 0x90000;
     }
     current_task->capabilities = CAP_REBOOT | CAP_SHUTDOWN | CAP_SYS_ADMIN;
     strcpy(current_task->cwd, "/");
@@ -163,7 +162,12 @@ void init_tasking() {
 
     ready_queue = current_task;
 
-    // Create background tasks
+    if (kabi_debug_enabled()) {
+        char s[20];
+        kprint("[SCHED] PID 1 task struct at 0x"); hex64_to_ascii((uint64_t)current_task, s); kprint(s); kprint("\n");
+    }
+
+    // Create the idle task
     task_t *idle = create_kernel_task(idle_task);
 
     // Link circularly: boot -> idle -> boot
@@ -250,7 +254,7 @@ task_t *create_kernel_task(void (*entry)(void)){
 }
 
 int sys_fork(registers_t *regs) {
-    uint32_t f = irq_save();
+    uintptr_t f = irq_save();
     task_t *parent = (task_t*)current_task;
     
     KTRACE0(KTRACE_TASK_CREATE);
@@ -261,10 +265,18 @@ int sys_fork(registers_t *regs) {
     // adding a task limit here for forks even though
     // right now we can only afford 24 heh
     // since we alloc a kernel stack per task
+    if (kabi_debug_enabled()) {
+        char s[20];
+        kprint("[FORK] Parent PID: "); int_to_ascii(parent->id, s); kprint(s);
+        kprint(" RIP: 0x"); hex64_to_ascii(regs->rip, s); kprint(s);
+        kprint(" CS: 0x"); hex_to_ascii((uint32_t)regs->cs, s); kprint(s);
+        kprint("\n");
+    }
+
     if (next_pid > MAX_TASKS) {
         kprint("[SCHED] fork: MAX_TASKS reached\n");
         irq_restore(f);
-        return -1;
+        return -KABI_ENOMEM;
     }
 
     if (kabi_debug_enabled()) kprint("[FORK] pd cloned, alloc child... ");
@@ -283,6 +295,12 @@ int sys_fork(registers_t *regs) {
     phys_addr_t phys;
     virt_addr_t base = (virt_addr_t)kmalloc(0x4000, 1, &phys);
     if (!base) panic("sys_fork: Out of memory for kernel stack");
+    
+    if (kabi_debug_enabled()) {
+        char s[20];
+        kprint("\n[FORK] Child kstack base=0x"); hex64_to_ascii(base, s); kprint(s);
+        kprint(" phys=0x"); hex64_to_ascii(phys, s); kprint(s); kprint("\n");
+    }
     
     // Poison stack for overflow detection
     memory_set((uint8_t*)base, 0xCC, 0x4000);
@@ -312,6 +330,7 @@ int sys_fork(registers_t *regs) {
 
     registers_t *child_regs = (registers_t*)child->user_esp;
     child_regs->rax = 0;             // Child returns 0
+    child_regs->rsp += stack_shift;  // Fix RSP so iretq lands on child's stack, not parent's
 
     // PHASE 4.1: Parent-Relative EBP Chain Fixup
     virt_addr_t src_stack_base = parent->kernel_stack_base;
@@ -382,6 +401,11 @@ int spawn_process(virt_addr_t entry_point, virt_addr_t user_stack) {
     // We MUST clone the kernel directory to get a private copy we can modify
     page_directory_t *directory = clone_page_directory(kernel_directory);
 
+    if (kabi_debug_enabled()) {
+        char s[20];
+        kprint("[SCHED] PID 1 task struct at 0x"); hex64_to_ascii((uint64_t)current_task, s); kprint(s); kprint("\n");
+    }
+    
     // Create new task struct
     
     // set task limit wherever task_t created
@@ -558,8 +582,8 @@ void kill(int pid) {
     task_t *task = (task_t*)ready_queue;
     if (!task) { irq_restore(f); return; }
 
-    if (pid == 1) {
-        kprint("Cannot kill kernel process!\n");
+    if (pid == 2) {
+        kprint("Cannot kill kernel idle task!\n");
         irq_restore(f);
         return;
     }
@@ -575,6 +599,7 @@ void kill(int pid) {
     } while (task != start_task && task != 0);
 
     irq_restore(f);
+    return;
 }
 
 /* ============================================================
@@ -651,8 +676,8 @@ do_terminate:
 }
 
 int task_send_signal(int pid, int sig) {
-    if (pid == 1) {
-        kprint("[SIG] Cannot signal kernel process\n");
+    if (pid == 2) {
+        kprint("[SIG] Cannot signal kernel idle task\n");
         return -1;
     }
 
@@ -753,7 +778,10 @@ void reap_zombies() {
             
             reaped++;
             // Update start if we just reaped the original head
-            if (to_free == start) start = task;
+            if (to_free == start) {
+                start = task;
+                if (!start) break;
+            }
             
             // If we just reaped everything back to start, break
             if (task == start) break;
@@ -808,30 +836,27 @@ void task_switch(registers_t *regs) {
 
     if (!seen_current) panic("CURRENT TASK NOT IN READY QUEUE");
 
-    if (irq_depth > 1) {
-        return; 
+    if (irq_depth > 1) return;
+
+    // Phase 1: Context Preservation for the outgoing task
+    task_t *prev_task = (task_t*)current_task;
+    
+    // Save the current stack pointer (regs points to the frame on current stack)
+    prev_task->user_esp = (virt_addr_t)regs;
+    
+    if (kabi_debug_enabled()) {
+        char s[16];
+        int_to_ascii(prev_task->id, s);
+        kprint("[SCHED] Save: PID "); kprint(s); 
+        kprint(" (REGS=0x"); hex64_to_ascii((uint64_t)prev_task->user_esp, s); kprint(s); kprint(")\n");
     }
 
-    // Save the current stack pointer
-    // alignment guardrail
-    if (((uintptr_t)regs) & 7) panic("ESP NOT WORD-ALIGNED (Save)");
-    
-    // If the task was interrupted on the per-CPU stack (User mode transition),
-    // Save current task's registers
-    // Since we now use per-task esp0 in TSS, regs is already on the task's private kernel stack.
-#ifndef ARCH_X86_64
-    current_task->user_esp = (uint32_t)regs;
-#else
-    current_task->user_esp = (virt_addr_t)regs;
-#endif
-    
-    // Mark current task as ready (it was running)
-    if (current_task->state == TASK_RUNNING) {
-        current_task->state = TASK_READY;
+    if (prev_task->state == TASK_RUNNING) {
+        prev_task->state = TASK_READY;
     }
 
-    // Find the next READY task
-    task_t *next_task = (task_t*)current_task;
+    // Phase 2: Selection of the incoming task
+    task_t *next_task = prev_task;
 
     if (current_scheduler && current_scheduler->pick_next) {
         kabi_task_t *out_task = NULL;
@@ -840,37 +865,47 @@ void task_switch(registers_t *regs) {
         }
     } else {
         // Fallback: simple round-robin walk
-        task_t *t = (task_t*)current_task->next;
+        task_t *t = (task_t*)prev_task->next;
         int rotations = 0;
-        while (t && t != (task_t*)current_task) {
+        while (t && t != prev_task) {
             if (t->state == TASK_READY) { next_task = t; break; }
             t = t->next;
             if (++rotations > MAX_TASKS + 2) break;
         }
     }
 
-    if (next_task == current_task) return;
+    // If no other task is ready, just continue with the current one
+    if (next_task == prev_task) {
+        prev_task->state = TASK_RUNNING;
+        return;
+    }
 
-    // TRACE Transition
-    // char s[10];
-    // kprint("[SCHED] "); 
-    // int_to_ascii(current_task->id, s); kprint(s);
-    // kprint(" -> ");
-    KTRACE2(KTRACE_SCHED_SWITCH, current_task->id, next_task->id);
+    // Phase 3: Transition to the incoming task
+    KTRACE2(KTRACE_SCHED_SWITCH, prev_task->id, next_task->id);
 
     current_task = next_task;
     validate_task((task_t*)current_task);
     current_task->state = TASK_RUNNING;
 
-    // Update TSS for the new task's kernel stack
-    // Load TSS with the new task's kernel stack
+    if (kabi_debug_enabled()) {
+        char s[16], s2[16], rip_s[20]; 
+        int_to_ascii(prev_task->id, s); int_to_ascii(current_task->id, s2);
+        
+        registers_t *target_regs = (registers_t*)current_task->user_esp;
+        hex64_to_ascii(target_regs->rip, rip_s);
+        
+        kprint("[SCHED] Switch: PID "); kprint(s); kprint(" -> "); kprint(s2);
+        kprint(" RESTORE=0x"); hex64_to_ascii(current_task->user_esp, s); kprint(s);
+        kprint(" RIP=0x"); kprint(rip_s);
+        kprint(" CS=0x"); hex_to_ascii((uint32_t)target_regs->cs, s); kprint(s);
+        kprint("\n");
+    }
+
+    // Update hardware context
+    switch_page_directory(current_task->page_directory);
     set_kernel_stack(current_task->kernel_stack);
 
-    // Switch page directory
-    current_directory = current_task->page_directory;
-    mmu_switch(current_directory);
-
-    // Tell the IRQ handler to use this new stack
+    // Final safety checks
     if ((current_task->user_esp < current_task->kernel_stack_base || 
          current_task->user_esp >= current_task->kernel_stack) &&
         (current_task->user_esp < cpu_local[0].kstack_base ||
@@ -878,12 +913,11 @@ void task_switch(registers_t *regs) {
         kprint("BAD ESP: 0x"); char s[16]; hex_to_ascii(current_task->user_esp, s); kprint(s); kprint("\n");
         panic("TASK SWITCH ESP OUT OF KSTACK");
     }
-    if (current_task->user_esp & 3) panic("ESP NOT WORD-ALIGNED (Restore)");
-#ifndef ARCH_X86_64
-    task_switch_esp = current_task->user_esp;
-#else
+    if (current_task->user_esp & 7) panic("ESP NOT 64-BIT ALIGNED (Restore)");
+
+    // Inform assembly stub of the new stack pointer
+    extern volatile virt_addr_t task_switch_rsp;
     task_switch_rsp = current_task->user_esp;
-#endif
 }
 
 void schedule(registers_t *regs) {
@@ -898,7 +932,7 @@ int wait_for_children() {
     int last_status = 0;
 
     while (1) {
-        uint32_t f = irq_save();
+        uintptr_t f = irq_save();
         
         // maybe we have a race condition preventing shell from resuming
         // on task end??
@@ -921,17 +955,18 @@ int wait_for_children() {
         }
 
         if (active_children == 0 && zombies == 0) {
+            if (kabi_debug_enabled()) kprint("[WAIT] No children left, returning.\n");
             irq_restore(f);
             return last_status;
         }
 
         if (zombies > 0) {
-            if (kabi_debug_enabled()) {
-                char s[16]; int_to_ascii(last_status, s);
-                kprint("[WAIT] Zombie found, status="); kprint(s); kprint("\n");
-            }
             irq_restore(f);
             reap_zombies();
+            if (kabi_debug_enabled()) {
+                char s[16]; int_to_ascii(last_status, s);
+                kprint("[WAIT] Zombie reaped, returning status: "); kprint(s); kprint("\n");
+            }
             return last_status;
         }
 
