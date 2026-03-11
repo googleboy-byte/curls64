@@ -33,18 +33,19 @@ void core_init() {
     
     cpu_init(0);
 
-#ifndef ARCH_X86_64
+#ifdef ARCH_X86_64
+    kprint("64-bit Core Init: GDT, TSS, Paging and PMM Ready.\n");
+    isr_install();
+    irq_install();
+    init_tasking();
+#else
     init_fs();
     kabi_bridge_init();
     init_tasking();
     init_syscalls();
-#else
-    kprint("64-bit Core Init: GDT, TSS, Paging and PMM Ready.\n");
 #endif
-
-#ifndef ARCH_X86_64
+    
     // Interrupts enabled by kernel_main or here?
     // User plan says 'asm volatile("sti")' at the end of core_init.
     asm volatile("sti");
-#endif
 }

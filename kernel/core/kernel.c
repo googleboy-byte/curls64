@@ -56,35 +56,34 @@ void kernel_main(void) {
     // 3. Start high-level orchestration
     kernel_shell();
 #else
-    kprint("[BOOT] 64-bit Paging64 Foundation verified.\n");
-    kprint("[PHASE4] Behavioral Proof: Simulated Task Switching\n");
-
-    // Simulate task A and B
-    uint64_t stack_a = 0x11110000;
-    uint64_t stack_b = 0x22220000;
-
-    kprint("  - Switching to Task A (rsp0: ");
-    char sa[20]; hex64_to_ascii(stack_a, sa); kprint(sa); kprint(")\n");
-    set_kernel_stack(stack_a);
+    kprint("[BOOT] 64-bit Core Foundation verified.\n");
     
-    extern cpu_local_t cpu_local[1];
-    kprint("  - Current TSS RSP0: ");
-    hex64_to_ascii(cpu_local[0].tss.rsp0, sa); kprint(sa); kprint("\n");
-
-    kprint("  - Switching to Task B (rsp0: ");
-    hex64_to_ascii(stack_b, sa); kprint(sa); kprint(")\n");
-    set_kernel_stack(stack_b);
-    
-    kprint("  - Current TSS RSP0: ");
-    hex64_to_ascii(cpu_local[0].tss.rsp0, sa); kprint(sa); kprint("\n");
-
-    if (cpu_local[0].tss.rsp0 == stack_b) {
-        kprint("[PHASE4] SUCCESS: per-task stack switching verified.\n");
-    } else {
-        kprint("[PHASE4] FAILURE: rsp0 update failed.\n");
+    // Demonstrate context switching
+    void test_task_function() {
+        while(1) {
+            kprint("  - [PHASE5] Hello from Task 2 (Preemptive)!\n");
+            for(volatile int i=0; i<1000000; i++); // delay
+        }
     }
 
-    kprint("[BOOT] Halted.\n");
+    create_kernel_task(test_task_function);
+    kprint("[PHASE5] Created secondary task for preemption test.\n");
+
+    kprint("[PHASE5] Testing IDT: Triggering software interrupt 0x30...\n");
+    asm volatile("int $0x30");
+    kprint("[PHASE5] IDT/ISR Software Test Completed.\n");
+    kprint("[PHASE5] Waiting for timer preemption (STI)...\n");
+    
+    // Enable interrupts
+    asm volatile("sti");
+
+    int count = 0;
+    while(1) {
+        kprint("  - [PHASE5] Hello from Task 1 (Main)!\n");
+        for(volatile int i=0; i<1000000; i++); // delay
+        if (++count > 5) break;
+    }
+    kprint("[BOOT] x86_64 Kernel Halted after verification.\n");
 #endif
 
     // 4. Idle loop

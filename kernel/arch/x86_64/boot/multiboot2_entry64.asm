@@ -40,6 +40,8 @@ align 4
 
 global multiboot2_start
 extern kernel_multiboot2_main64
+global mb2_boot_stack
+global mb2_boot_stack_top
 
 multiboot2_start:
     cli
@@ -52,7 +54,7 @@ multiboot2_start:
     mov edi, ebx
 
     ; Set up temporary 32-bit stack
-    mov esp, initial_stack_top
+    mov esp, mb2_boot_stack_top
 
     ; 1. Build early page tables (PML4 -> PDPT -> PD -> 2MB Page)
     ; Identity map the first 2MB
@@ -126,7 +128,7 @@ long_mode_entry:
     mov ss, ax
 
     ; Set up 64-bit stack
-    mov rsp, initial_stack_top
+    mov rsp, mb2_boot_stack_top
 
     ; Pass Multiboot info pointer (rdi was inherited from edi)
     mov esi, MULTIBOOT2_BOOTLOADER_MAGIC ; magic in rsi (second arg)
@@ -165,6 +167,6 @@ pd:
     resb 4096
 
 align 16
-initial_stack:
+mb2_boot_stack:
     resb 0x10000 ; 64KB early stack
-initial_stack_top:
+mb2_boot_stack_top:

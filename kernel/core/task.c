@@ -78,8 +78,9 @@ extern page_directory_t *current_directory;
 
 uint32_t next_pid = 1;
 
-// Global to communicate new ESP to the IRQ/ISR handlers
+// Global to communicate new ESP/RSP to the IRQ/ISR handlers
 volatile uint32_t task_switch_esp = 0;
+volatile uint64_t task_switch_rsp = 0;
 
 static void validate_task(task_t *t) {
     if (!t) panic("validate_task: NULL task");
@@ -93,7 +94,7 @@ static void validate_task(task_t *t) {
     if (!t->user_esp) panic("validate_task: Task user_esp NULL");
 
     // Stack overflow detection
-    uint32_t *guard = (uint32_t*)t->kernel_stack_base;
+    uintptr_t *guard = (uintptr_t*)t->kernel_stack_base;
     if (*guard != STACK_MAGIC) {
         kprint("STACK OVERFLOW on PID "); char s[16]; int_to_ascii(t->id, s); kprint(s); kprint("\n");
         panic("KERNEL STACK OVERFLOW");
@@ -131,11 +132,15 @@ void init_tasking() {
     // explicit mb2_boot_stack in the kernel image.
     extern uint8_t mb2_boot_stack;
     extern uint8_t mb2_boot_stack_top;
-    uint32_t esp;
+    uintptr_t esp;
+#ifdef ARCH_X86_64
+    asm volatile("mov %%rsp, %0" : "=r"(esp));
+#else
     asm volatile("mov %%esp, %0" : "=r"(esp));
+#endif
 
-    uint32_t mb2_base = (uint32_t)&mb2_boot_stack;
-    uint32_t mb2_top  = (uint32_t)&mb2_boot_stack_top;
+    uintptr_t mb2_base = (uintptr_t)&mb2_boot_stack;
+    uintptr_t mb2_top  = (uintptr_t)&mb2_boot_stack_top;
 
     if (esp >= mb2_base && esp <= mb2_top) {
         current_task->kernel_stack_base = mb2_base;
@@ -154,7 +159,7 @@ void init_tasking() {
     set_kernel_stack(current_task->kernel_stack);
 
     // Poison the bottom of PID 1 stack as a guard
-    *(uint32_t*)current_task->kernel_stack_base = STACK_MAGIC;
+    *(uintptr_t*)current_task->kernel_stack_base = STACK_MAGIC;
 
     ready_queue = current_task;
 
@@ -187,8 +192,8 @@ task_t *create_kernel_task(void (*entry)(void)){
     new_task->magic = TASK_MAGIC;
 
     // Allocate kernel stack (16KB)
-    uint32_t phys;
-    uint32_t base = (uint32_t)kmalloc(0x4000, 1, &phys);
+    phys_addr_t phys;
+    virt_addr_t base = (virt_addr_t)kmalloc(0x4000, 1, &phys);
     if (!base) panic("create_kernel_task: Out of memory for kernel stack");
     
     // Poison stack for overflow detection
@@ -197,34 +202,50 @@ task_t *create_kernel_task(void (*entry)(void)){
     new_task->kernel_stack_base = base;
     new_task->kernel_stack = base + 0x4000; // top
 
-    uint32_t *stack = (uint32_t*)new_task->kernel_stack;
+    uint64_t *stack = (uint64_t*)new_task->kernel_stack;
 
     // CPU-pushed (iret frame) — RING 0 -> RING 0
-    *(--stack) = 0x202;                // EFLAGS (IF=1)
+    *(--stack) = 0x10;                 // SS
+    *(--stack) = (uint64_t)stack + 8;  // RSP (dummy for now)
+    *(--stack) = 0x202;                // RFLAGS (IF=1)
     *(--stack) = 0x08;                 // CS (kernel code)
-    *(--stack) = (uint32_t)entry;      // EIP
+    *(--stack) = (uint64_t)entry;      // RIP
 
     // ISR-pushed (err_code, int_no)
     *(--stack) = 0;                    // err_code
     *(--stack) = 32;                   // int_no (IRQ0 / Timer)
 
-    // pusha (eax, ecx, edx, ebx, esp, ebp, esi, edi)
-    *(--stack) = 0; // eax
-    *(--stack) = 0; // ecx
-    *(--stack) = 0; // edx
-    *(--stack) = 0; // ebx
-    *(--stack) = 0; // useless (esp placeholder)
-    *(--stack) = 0; // ebp
-    *(--stack) = 0; // esi
-    *(--stack) = 0; // edi
+    // Push registers in the order interrupt64.asm POPS them (reverse push order):
+    // ASM pushes: rax, rbx, rcx, rdx, rsi, rdi, rbp, r8-r15
+    // So iretq frame on stack (top to bottom): r15, r14, ..., rax, int_no, err, rip...
+    // We build it from top (high addr) downward:
+    *(--stack) = 0; // rax  <- first pushed by asm, so lowest in stack (last here)
+    *(--stack) = 0; // rbx
+    *(--stack) = 0; // rcx
+    *(--stack) = 0; // rdx
+    *(--stack) = 0; // rsi
+    *(--stack) = 0; // rdi
+    *(--stack) = 0; // rbp
+    *(--stack) = 0; // r8
+    *(--stack) = 0; // r9
+    *(--stack) = 0; // r10
+    *(--stack) = 0; // r11
+    *(--stack) = 0; // r12
+    *(--stack) = 0; // r13
+    *(--stack) = 0; // r14
+    *(--stack) = 0; // r15  <- last pushed by asm = top of saved frame
 
-    // ds
-    *(--stack) = 0x10;
-
-    new_task->user_esp = (uint32_t)stack;
+    new_task->user_esp = (virt_addr_t)stack;
     
-    kprint("\n");
-    
+#ifdef ARCH_X86_64
+    // On x86_64, link new task into the ready_queue circular list.
+    uint32_t f = irq_save();
+    task_t *tail = (task_t*)ready_queue;
+    while (tail->next && tail->next != ready_queue) tail = tail->next;
+    new_task->next = (task_t*)ready_queue;
+    tail->next = new_task;
+    irq_restore(f);
+#endif
     return new_task;
 }
 
@@ -259,8 +280,8 @@ int sys_fork(registers_t *regs) {
     strcpy(child->cwd, parent->cwd);
 
     // Allocate kernel stack for child
-    uint32_t phys;
-    uint32_t base = (uint32_t)kmalloc(0x4000, 1, &phys);
+    phys_addr_t phys;
+    virt_addr_t base = (virt_addr_t)kmalloc(0x4000, 1, &phys);
     if (!base) panic("sys_fork: Out of memory for kernel stack");
     
     // Poison stack for overflow detection
@@ -271,12 +292,12 @@ int sys_fork(registers_t *regs) {
 
     // PHASE 3: Surgical Stack Cloning
     // Determine the source stack top (could be task's private stack or CPU entry stack)
-    uint32_t src_stack_top = parent->kernel_stack;
-    if ((uint32_t)regs >= cpu_local[0].kstack_base && (uint32_t)regs < cpu_local[0].kstack_top) {
+    virt_addr_t src_stack_top = parent->kernel_stack;
+    if ((virt_addr_t)regs >= cpu_local[0].kstack_base && (virt_addr_t)regs < cpu_local[0].kstack_top) {
         src_stack_top = cpu_local[0].kstack_top;
     }
 
-    uint32_t stack_used = src_stack_top - (uint32_t)regs;
+    virt_addr_t stack_used = src_stack_top - (virt_addr_t)regs;
     
     // SAFETY: Prevent stack smashing if parent (sh) uses a massive stack
     if (stack_used > 0x4000) {
@@ -286,37 +307,37 @@ int sys_fork(registers_t *regs) {
     memory_copy((uint8_t*)regs, (uint8_t*)(child->kernel_stack - stack_used), stack_used);
 
     // PHASE 4: Fix child register state
-    int32_t stack_shift = (int32_t)child->kernel_stack - (int32_t)src_stack_top;
+    int64_t stack_shift = (int64_t)child->kernel_stack - (int64_t)src_stack_top;
     child->user_esp = child->kernel_stack - stack_used;
 
     registers_t *child_regs = (registers_t*)child->user_esp;
-    child_regs->eax = 0;             // Child returns 0
+    child_regs->rax = 0;             // Child returns 0
 
     // PHASE 4.1: Parent-Relative EBP Chain Fixup
-    uint32_t src_stack_base = parent->kernel_stack_base;
+    virt_addr_t src_stack_base = parent->kernel_stack_base;
     if (src_stack_top == cpu_local[0].kstack_top) src_stack_base = cpu_local[0].kstack_base;
 
-    if (regs->ebp >= src_stack_base && regs->ebp < src_stack_top) {
-        uint32_t parent_ebp = regs->ebp;
-        uint32_t child_ebp  = parent_ebp + stack_shift;
-        child_regs->ebp = child_ebp;
+    if (regs->rbp >= src_stack_base && regs->rbp < src_stack_top) {
+        virt_addr_t parent_rbp = regs->rbp;
+        virt_addr_t child_rbp  = parent_rbp + stack_shift;
+        child_regs->rbp = child_rbp;
 
         int ebp_depth = 0;
-        while (parent_ebp >= src_stack_base && parent_ebp < src_stack_top) {
+        while (parent_rbp >= src_stack_base && parent_rbp < src_stack_top) {
             if (++ebp_depth > 64) panic("EBP LOOP TOO DEEP");
-            uint32_t next_parent_ebp = *(uint32_t*)parent_ebp;
-            if (next_parent_ebp < src_stack_base || next_parent_ebp >= src_stack_top)
+            virt_addr_t next_parent_rbp = *(virt_addr_t*)parent_rbp;
+            if (next_parent_rbp < src_stack_base || next_parent_rbp >= src_stack_top)
                 break;
 
-            uint32_t next_child_ebp = next_parent_ebp + stack_shift;
-            *(uint32_t*)(child_ebp) = next_child_ebp;
+            virt_addr_t next_child_rbp = next_parent_rbp + stack_shift;
+            *(virt_addr_t*)(child_rbp) = next_child_rbp;
 
-            parent_ebp = next_parent_ebp;
-            child_ebp  = next_child_ebp;
+            parent_rbp = next_parent_rbp;
+            child_rbp  = next_child_rbp;
         }
     } else {
         // User-mode EBP or garbage, do not shift
-        child_regs->ebp = regs->ebp;
+        child_regs->rbp = regs->rbp;
     }
 
     // Phase 5: File descriptor inheritance
@@ -353,7 +374,7 @@ int fork() {
 }
 
 // Create a new process that will run user-mode code at the given entry point
-int spawn_process(uint32_t entry_point, uint32_t user_stack) {
+int spawn_process(virt_addr_t entry_point, virt_addr_t user_stack) {
     uint32_t f = irq_save();
 
     task_t *parent_task = (task_t*)current_task;
@@ -418,8 +439,8 @@ int spawn_process(uint32_t entry_point, uint32_t user_stack) {
     }
 
     // Allocate a new kernel stack for the child (16KB, page-aligned)
-    uint32_t stack_phys;
-    uint32_t stack_base = (uint32_t)kmalloc(0x4000, 1, &stack_phys);
+    phys_addr_t stack_phys;
+    virt_addr_t stack_base = (virt_addr_t)kmalloc(0x4000, 1, &stack_phys);
     if (!stack_base) panic("spawn_process: Out of memory for kernel stack");
     
     // Poison stack for overflow detection
@@ -470,34 +491,38 @@ int spawn_process(uint32_t entry_point, uint32_t user_stack) {
     //   DS        (user data segment)
     // [Lower addresses - esp points here]
     
-    uint32_t *stack = (uint32_t*)(new_task->kernel_stack);
+    uint64_t *stack = (uint64_t*)(new_task->kernel_stack);
     
     // User mode IRET frame (pushed in reverse order since stack grows down)
     *(--stack) = 0x23;              // SS (user data segment 0x20 | RPL 3)
-    *(--stack) = user_stack;        // ESP (user stack)
-    *(--stack) = 0x202;             // EFLAGS (IF=1, bit 1 always 1)
+    *(--stack) = user_stack;        // RSP (user stack)
+    *(--stack) = 0x202;             // RFLAGS (IF=1, bit 1 always 1)
     *(--stack) = 0x1B;              // CS (user code segment 0x18 | RPL 3)
-    *(--stack) = entry_point;       // EIP (where to start executing)
+    *(--stack) = entry_point;       // RIP (where to start executing)
     
     // Interrupt number and error code
     *(--stack) = 0;                 // Error code
     *(--stack) = 0;                 // Interrupt number
     
-    // General purpose registers (as pushed by pusha)
-    *(--stack) = 0;                 // EAX
-    *(--stack) = 0;                 // ECX
-    *(--stack) = 0;                 // EDX
-    *(--stack) = 0;                 // EBX
-    *(--stack) = 0;                 // ESP (ignored by popa)
-    *(--stack) = 0;                 // EBP
-    *(--stack) = 0;                 // ESI
-    *(--stack) = 0;                 // EDI
-    
-    // Data segment
-    *(--stack) = 0x23;              // DS (user data segment)
+    // push registers (rax, rbx, rcx, rdx, rsi, rdi, rbp, r8-r15)
+    *(--stack) = 0; // rax
+    *(--stack) = 0; // rbx
+    *(--stack) = 0; // rcx
+    *(--stack) = 0; // rdx
+    *(--stack) = 0; // rdi
+    *(--stack) = 0; // rsi
+    *(--stack) = 0; // rbp
+    *(--stack) = 0; // r8
+    *(--stack) = 0; // r9
+    *(--stack) = 0; // r10
+    *(--stack) = 0; // r11
+    *(--stack) = 0; // r12
+    *(--stack) = 0; // r13
+    *(--stack) = 0; // r14
+    *(--stack) = 0; // r15
     
     // The task's ESP points to the top of this fake frame
-    new_task->user_esp = (uint32_t)stack;
+    new_task->user_esp = (virt_addr_t)stack;
     
     irq_restore(f);
     return new_task->id;
@@ -789,12 +814,16 @@ void task_switch(registers_t *regs) {
 
     // Save the current stack pointer
     // alignment guardrail
-    if (((uint32_t)regs) & 3) panic("ESP NOT WORD-ALIGNED (Save)");
+    if (((uintptr_t)regs) & 7) panic("ESP NOT WORD-ALIGNED (Save)");
     
     // If the task was interrupted on the per-CPU stack (User mode transition),
     // Save current task's registers
     // Since we now use per-task esp0 in TSS, regs is already on the task's private kernel stack.
+#ifndef ARCH_X86_64
     current_task->user_esp = (uint32_t)regs;
+#else
+    current_task->user_esp = (virt_addr_t)regs;
+#endif
     
     // Mark current task as ready (it was running)
     if (current_task->state == TASK_RUNNING) {
@@ -809,7 +838,16 @@ void task_switch(registers_t *regs) {
         if (current_scheduler->pick_next(&out_task) == KABI_SUCCESS) {
             next_task = (task_t*)out_task;
         }
-    } 
+    } else {
+        // Fallback: simple round-robin walk
+        task_t *t = (task_t*)current_task->next;
+        int rotations = 0;
+        while (t && t != (task_t*)current_task) {
+            if (t->state == TASK_READY) { next_task = t; break; }
+            t = t->next;
+            if (++rotations > MAX_TASKS + 2) break;
+        }
+    }
 
     if (next_task == current_task) return;
 
@@ -830,8 +868,7 @@ void task_switch(registers_t *regs) {
 
     // Switch page directory
     current_directory = current_task->page_directory;
-    uint32_t new_cr3 = current_directory->physicalAddr;
-    asm volatile("mov %0, %%cr3" : : "r"(new_cr3));
+    mmu_switch(current_directory);
 
     // Tell the IRQ handler to use this new stack
     if ((current_task->user_esp < current_task->kernel_stack_base || 
@@ -842,7 +879,11 @@ void task_switch(registers_t *regs) {
         panic("TASK SWITCH ESP OUT OF KSTACK");
     }
     if (current_task->user_esp & 3) panic("ESP NOT WORD-ALIGNED (Restore)");
+#ifndef ARCH_X86_64
     task_switch_esp = current_task->user_esp;
+#else
+    task_switch_rsp = current_task->user_esp;
+#endif
 }
 
 void schedule(registers_t *regs) {
@@ -952,8 +993,8 @@ void task_check_pending_signals(registers_t *regs) {
     t->pending_signals &= ~SIG_BIT(sig);
 
     /* Save original user context for sigreturn */
-    t->saved_eip = regs->eip;
-    t->saved_esp = regs->esp;
+    t->saved_eip = regs->rip;
+    t->saved_esp = regs->rsp;
 
     /* ---- Build signal frame on user stack ---- */
 
@@ -963,28 +1004,28 @@ void task_check_pending_signals(registers_t *regs) {
         0xCD, 0x80                     /* int 0x80                     */
     };
 
-    uint32_t u = t->saved_esp;
+    virt_addr_t u = t->saved_esp;
 
     /* Push trampoline bytes (7 bytes grow into lower addresses) */
     u -= 7;
     uint8_t *tp = (uint8_t*)u;
     for (int i = 0; i < 7; i++) tp[i] = trampoline_code[i];
-    uint32_t trampoline_ptr = u;
+    virt_addr_t trampoline_ptr = u;
 
-    /* Align to 4-byte boundary */
-    u &= ~(uint32_t)3;
+    /* Align to 8-byte boundary */
+    u &= ~(virt_addr_t)7;
 
-    /* Push signal number (argument 1, accessible at ESP+4 in handler) */
-    u -= 4;
-    *(uint32_t*)u = (uint32_t)sig;
+    /* Push signal number (argument 1, accessible at RSP+8 in handler) */
+    u -= 8;
+    *(uint64_t*)u = (uint64_t)sig;
 
-    /* Push return address (points to trampoline, accessible at ESP+0) */
-    u -= 4;
-    *(uint32_t*)u = trampoline_ptr;
+    /* Push return address (points to trampoline, accessible at RSP+0) */
+    u -= 8;
+    *(uint64_t*)u = (uint64_t)trampoline_ptr;
 
     /* ---- Redirect IRET frame to handler ---- */
-    regs->eip = t->sigterm_handler;
-    regs->esp = u;
+    regs->rip = t->sigterm_handler;
+    regs->rsp = u;
 
     /* Mark task as inside signal handler (reentrancy guard) */
     t->in_signal = 1;
