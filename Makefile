@@ -82,6 +82,9 @@ kernel/arch/x86_64/boot/multiboot2_entry64.o64: kernel/arch/x86_64/boot/multiboo
 kernel/arch/x86_64/mmu/mmu.o64: kernel/arch/x86_64/mmu/mmu.c
 	${CC} ${CFLAGS64} -c $< -o $@
 
+kernel/core/process64.o64: kernel/core/process64.asm
+	nasm $< -f elf64 -o $@
+
 $(BUILD_DIR)/kernel64.elf: kernel/arch/x86_64/boot/multiboot2_entry64.o64 kernel/core/boot_multiboot2_64.o64 ${OBJ64_CORE} | $(BUILD_DIR)
 	ld -m elf_x86_64 -o $@ -T linker64.ld $^
 
@@ -99,6 +102,10 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                kernel/core/vfs_core.o64 \
                kernel/core/kabi_bridge.o64 \
                kernel/core/block_dev.o64 \
+               kernel/core/pipe.o64 \
+               kernel/core/reboot.o64 \
+               kernel/core/uabi_helpers.o64 \
+               kernel/core/process64.o64 \
                kernel/modules/drivers/screen.o64 \
                kernel/modules/drivers/uart.o64 \
                kernel/modules/drivers/keyboard.o64 \
@@ -117,7 +124,8 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                 kernel/fs/fat32/fat32_file.o64 \
                 kernel/fs/fat32/fat32_ls.o64 \
                 kernel/fs/fat32/fat32_fat.o64 \
-                kernel/ktrace/ktrace.o64 \
+                kernel/fs/fat32/fat32_vfs.o64 \
+                 kernel/ktrace/ktrace.o64 \
                kernel/core/tests/core_tests/core_test64_v1.o64 \
                libc/mem.o64 \
                libc/string.o64 \
