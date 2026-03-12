@@ -25,7 +25,11 @@ void core_reboot(reboot_reason_t reason) {
     // Triple fault method: Load a zero-length IDT and trigger an interrupt
     struct {
         uint16_t limit;
+#ifdef ARCH_X86_64
+        uint64_t base;
+#else
         uint32_t base;
+#endif
     } __attribute__((packed)) idt_ptr = {0, 0};
     
     asm volatile("lidt %0" : : "m"(idt_ptr));
