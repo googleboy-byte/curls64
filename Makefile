@@ -97,7 +97,7 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                kernel/core/core_init.o64 \
                kernel/arch/x86_64/mmu/mmu.o64 \
                kernel/cpu/paging.o64 \
-               kernel/arch/x86_64/cpu/interrupt64.o64 kernel/cpu/isr.o64 kernel/core/task.o64 kernel/cpu/ports.o64 kernel/cpu/timer.o64 kernel/cpu/idt.o64 kernel/arch/x86_64/cpu/stubs64.o64 \
+               kernel/arch/x86_64/cpu/interrupt64.o64 kernel/cpu/isr.o64 kernel/core/task.o64 kernel/cpu/ports.o64 kernel/cpu/timer.o64 kernel/cpu/idt.o64 \
                kernel/core/syscall_dispatch.o64 \
                kernel/core/vfs_core.o64 \
                kernel/core/kabi_bridge.o64 \
@@ -127,6 +127,13 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                 kernel/fs/fat32/fat32_vfs.o64 \
                  kernel/ktrace/ktrace.o64 \
                kernel/core/tests/core_tests/core_test64_v1.o64 \
+               kernel/core/tests/unit/test_paging.o64 \
+               kernel/core/tests/unit/test_fd.o64 \
+                kernel/core/tests/unit/test_pipe.o64 \
+                kernel/core/tests/unit/test_signal.o64 \
+                kernel/core/tests/unit/test_heap.o64 \
+                kernel/core/tests/stress/test_stress.o64 \
+               kernel/modules/test/module_tests_runner.o64 \
                libc/mem.o64 \
                libc/string.o64 \
                libc/kheap.o64

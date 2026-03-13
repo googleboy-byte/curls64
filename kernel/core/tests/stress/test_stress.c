@@ -46,7 +46,11 @@ void stress_deep_syscall(int depth) {
     
     // Mock registers for assert_on_kstack
     registers_t r;
+#ifdef ARCH_X86_64
+    r.rsp = (uint64_t)&buf;
+#else
     r.esp = (uint32_t)&buf; 
+#endif
     assert_on_kstack(&r);
     
     if (depth > 120) {

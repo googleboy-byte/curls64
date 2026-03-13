@@ -8,14 +8,16 @@
 #include "../../task.h"
 #include "test_fd.h"
 #include "test_pipe.h"
+#include "test_paging.h"
 #include "test_signal.h"
-#include "../core_tests/core_test_v1.h"
+#include "../core_tests/core_test64_v1.h"
+#include "../unit/test_heap.h"
 #include "../../../modules/test/module_tests_runner.h"
 
 void print_test_menu() {
     kprint("\n--- Page Fault Test Menu ---\n");
     kprint("FAULTNULL    : Dereference NULL (0x0)\n");
-    kprint("FAULTOOB     : Access unmapped memory (0xA0000000)\n");
+    kprint("FAULTOOB     : Access unmapped memory (0x0000DEADBEEF0000)\n");
     kprint("FAULTSTACK   : Infinite recursion (Stack Overflow)\n");
     kprint("FAULTEXEC    : Execute data (Simulated)\n");
     kprint("FAULTKERNEL  : User -> Kernel access (Simulated)\n");
@@ -45,15 +47,15 @@ void trigger_null() {
     kprint("Unmapping 0x0... ");
     unmap_page(0x0); // Unmap the Null Page
     kprint("Done. Dereferencing 0x0...\n");
-    uint32_t *ptr = (uint32_t*)0x0;
-    uint32_t val = *ptr; // BOOM
+    uint64_t *ptr = (uint64_t*)0x0;
+    uint64_t val = *ptr; // BOOM
     UNUSED(val);
 }
 
 void trigger_oob() {
-    kprint("Accessing 0xA0000000 (Unmapped)...\n");
-    uint32_t *ptr = (uint32_t*)0xA0000000;
-    uint32_t val = *ptr; // BOOM
+    kprint("Accessing 0x0000DEADBEEF0000 (Unmapped)...\n");
+    uint64_t *ptr = (uint64_t*)0x0000DEADBEEF0000;
+    uint64_t val = *ptr; // BOOM
     UNUSED(val);
 }
 
@@ -64,8 +66,8 @@ void trigger_stack() {
 
 void trigger_exec() {
     kprint("Jumping to Data (heap)...\n");
-    uint32_t *code = (uint32_t*)kmalloc(16, 1, 0);
-    *code = 0x90909090; // NOPs
+    uint64_t *code = (uint64_t*)kmalloc(16, 1, 0);
+    *code = 0x9090909090909090; // NOPs
     // Real NX requires hardware support. 
     // This will likely just execute gracefully or crash with Invalid Opcode if garbage.
     // However, if we marked page as User/RO, etc...
@@ -135,7 +137,7 @@ void handle_test_command(char *input) {
             kprint("\n");
         }
     } else if (strcmp(input, "CORE_V1") == 0) {
-        run_core_test_v1();
+        run_core_test64_v1();
     } else if (strcmp(input, "MODULES") == 0) {
         run_all_module_tests();
     } else if (strcmp(input, "EXIT") == 0) {
