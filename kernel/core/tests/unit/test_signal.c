@@ -23,7 +23,7 @@
 static volatile int handler_was_called = 0;
 static volatile int handler_sig_received = 0;
 
-/* Fake handler function (kernel EIP — only used for frame-mutation test) */
+/* Fake handler function (kernel RIP — only used for frame-mutation test) */
 static void fake_sig_handler(int sig) {
     handler_was_called = 1;
     handler_sig_received = sig;
@@ -38,7 +38,7 @@ static void fail(const char *name, const char *reason) {
     kprint(name); kprint(": FAILED ("); kprint(reason); kprint(")\n");
 }
 
-static task_t *find_task(uint32_t pid) {
+static task_t *find_task(uint64_t pid) {
     extern volatile task_t *ready_queue;
     task_t *t = (task_t*)ready_queue;
     if (!t) return 0;
@@ -58,7 +58,7 @@ static void test_sigkill_uncatchable() {
     int pid = kabi_fork();
     if (pid == 0) {
         /* Child: register handler, then busy-wait */
-        current_task->sigterm_handler = (uint32_t)fake_sig_handler;
+        current_task->sigterm_handler = (virt_addr_t)fake_sig_handler;
         for(;;) { asm volatile("hlt"); }
     }
 
@@ -67,7 +67,7 @@ static void test_sigkill_uncatchable() {
     task_send_signal(pid, SIGKILL);
 
     /* Verify: child must be ZOMBIE regardless of handler */
-    task_t *child = find_task((uint32_t)pid);
+    task_t *child = find_task((uint64_t)pid);
     if (child && child->state == TASK_ZOMBIE)
         pass(name);
     else
@@ -83,18 +83,18 @@ static void test_sigkill_no_pending_bit() {
     const char *name = "[SIG T2] SIGKILL ignores handler EIP";
     int pid = kabi_fork();
     if (pid == 0) {
-        current_task->sigterm_handler = (uint32_t)fake_sig_handler;
+        current_task->sigterm_handler = (virt_addr_t)fake_sig_handler;
         current_task->pending_signals = 0;
         for(;;) { asm volatile("hlt"); }
     }
 
     for(volatile int i = 0; i < 500000; i++);
 
-    task_t *child = find_task((uint32_t)pid);
+    task_t *child = find_task((uint64_t)pid);
     if (!child) { fail(name, "child missing before kill"); return; }
 
     /* Deliver SIGKILL directly on the task struct */
-    uint32_t f = irq_save();
+    uint64_t f = irq_save();
     task_deliver_signal(child, SIGKILL);
     uint32_t bits = child->pending_signals; /* capture before reap */
     irq_restore(f);
@@ -122,7 +122,7 @@ static void test_sigterm_default() {
     for(volatile int i = 0; i < 500000; i++);
     task_send_signal(pid, SIGTERM);
 
-    task_t *child = find_task((uint32_t)pid);
+    task_t *child = find_task((uint64_t)pid);
     if (child && child->state == TASK_ZOMBIE)
         pass(name);
     else
@@ -173,13 +173,13 @@ static void test_signal_coalescing() {
 
     for(volatile int i = 0; i < 500000; i++);
 
-    task_t *child = find_task((uint32_t)pid);
+    task_t *child = find_task((uint64_t)pid);
     if (!child) { fail(name, "child missing"); return; }
 
-    uint32_t f = irq_save();
+    uint64_t f = irq_save();
 
     /* Set handler from parent side — no race condition with child scheduling */
-    child->sigterm_handler = (uint32_t)fake_sig_handler;
+    child->sigterm_handler = (virt_addr_t)fake_sig_handler;
 
     /* Deliver SIGTERM 5× — bitmask means only one bit can ever be set */
     for (int i = 0; i < 5; i++)
@@ -229,7 +229,7 @@ static void test_sigkill_kernel_task() {
     if (!kt) { fail(name, "create_kernel_task returned null"); return; }
 
     /* Link it into the ready queue before signalling */
-    uint32_t f = irq_save();
+    uint64_t f = irq_save();
     kt->next = (task_t*)current_task->next;
     current_task->next = kt;
     irq_restore(f);
@@ -258,24 +258,35 @@ static void test_reentrancy_guard() {
     registers_t fake_regs;
     memory_set((uint8_t*)&fake_regs, 0, sizeof(fake_regs));
     fake_regs.cs      = 0x1B;          /* Ring-3 code segment */
+#ifdef ARCH_X86_64
+    fake_regs.rip     = 0xDEAD0000;    /* fake user RIP */
+    fake_regs.rsp     = 0xBEEF0000;    /* fake user RSP */
+    fake_regs.rflags  = 0x202;
+#else
     fake_regs.eip     = 0xDEAD0000;    /* fake user EIP */
     fake_regs.esp     = 0xBEEF0000;    /* fake user ESP */
     fake_regs.eflags  = 0x202;
+#endif
 
     task_t *t = (task_t*)current_task;
-    uint32_t saved_handler = t->sigterm_handler;
-    uint32_t saved_pending = t->pending_signals;
-    int      saved_in_sig  = t->in_signal;
+    virt_addr_t saved_handler = t->sigterm_handler;
+    uint32_t    saved_pending = t->pending_signals;
+    int         saved_in_sig  = t->in_signal;
 
     /* Set up: handler registered, SIGTERM pending, already inside handler */
-    t->sigterm_handler = (uint32_t)fake_sig_handler;
+    t->sigterm_handler = (virt_addr_t)fake_sig_handler;
     t->pending_signals = SIG_BIT(SIGTERM);
     t->in_signal       = 1;           /* ← reentrancy guard */
 
+#ifdef ARCH_X86_64
+    uint64_t rip_before = fake_regs.rip;
+    task_check_pending_signals(&fake_regs);
+    int guarded = (fake_regs.rip == rip_before); /* RIP must be unchanged */
+#else
     uint32_t eip_before = fake_regs.eip;
     task_check_pending_signals(&fake_regs);
-
     int guarded = (fake_regs.eip == eip_before); /* EIP must be unchanged */
+#endif
 
     /* Restore task state */
     t->sigterm_handler = saved_handler;
@@ -303,21 +314,27 @@ static void test_handler_frame_mutation() {
     uint8_t fake_user_stack[64];
     memory_set(fake_user_stack, 0, sizeof(fake_user_stack));
     /* Point esp at the top of the buffer (stack grows down) */
-    uint32_t fake_user_esp = (uint32_t)(fake_user_stack + sizeof(fake_user_stack));
+    uintptr_t fake_user_esp = (uintptr_t)(fake_user_stack + sizeof(fake_user_stack));
 
     registers_t fake_regs;
     memory_set((uint8_t*)&fake_regs, 0, sizeof(fake_regs));
     fake_regs.cs     = 0x1B;         /* Ring-3 */
+#ifdef ARCH_X86_64
+    fake_regs.rip    = 0xCAFEBABE;   /* original user RIP */
+    fake_regs.rsp    = fake_user_esp; /* original user RSP */
+    fake_regs.rflags = 0x202;
+#else
     fake_regs.eip    = 0xCAFEBABE;   /* original user EIP */
     fake_regs.esp    = fake_user_esp; /* original user ESP */
     fake_regs.eflags = 0x202;
+#endif
 
     task_t *t = (task_t*)current_task;
-    uint32_t saved_handler = t->sigterm_handler;
-    uint32_t saved_pending = t->pending_signals;
-    int      saved_in_sig  = t->in_signal;
+    virt_addr_t saved_handler = t->sigterm_handler;
+    uint32_t    saved_pending = t->pending_signals;
+    int         saved_in_sig  = t->in_signal;
 
-    t->sigterm_handler = (uint32_t)fake_sig_handler;
+    t->sigterm_handler = (virt_addr_t)fake_sig_handler;
     t->pending_signals = SIG_BIT(SIGTERM);
     t->in_signal       = 0;
 
@@ -326,11 +343,19 @@ static void test_handler_frame_mutation() {
     /* ---- Verify the mutations ---- */
     int ok = 1;
 
+#ifdef ARCH_X86_64
+    /* RIP must now be the handler, not the original RIP */
+    if (fake_regs.rip != (virt_addr_t)fake_sig_handler) {
+        fail(name, "RIP not redirected to handler");
+        ok = 0;
+    }
+#else
     /* EIP must now be the handler, not the original EIP */
     if (fake_regs.eip != (uint32_t)fake_sig_handler) {
         fail(name, "EIP not redirected to handler");
         ok = 0;
     }
+#endif
 
     /* SIGTERM bit must be cleared from pending_signals */
     if (t->pending_signals & SIG_BIT(SIGTERM)) {
@@ -344,18 +369,42 @@ static void test_handler_frame_mutation() {
         ok = 0;
     }
 
-    /* saved_eip must be the original EIP */
+    /* saved_eip must be the original RIP/EIP */
     if (t->saved_eip != 0xCAFEBABE) {
         fail(name, "saved_eip wrong");
         ok = 0;
     }
 
-    /* saved_esp must be the original user ESP */
+    /* saved_esp must be the original user RSP/ESP */
     if (t->saved_esp != fake_user_esp) {
         fail(name, "saved_esp wrong");
         ok = 0;
     }
 
+#ifdef ARCH_X86_64
+    /* The new RSP must be below the original RSP (stack built downward) */
+    if (fake_regs.rsp >= fake_user_esp) {
+        fail(name, "new RSP not below original");
+        ok = 0;
+    }
+
+    /* [new_rsp+0] must be the trampoline address (the return address) */
+    uint64_t ret_addr = *(uint64_t*)fake_regs.rsp;
+    /* The trampoline starts somewhere below fake_user_esp */
+    if (ret_addr < (uint64_t)fake_user_stack ||
+        ret_addr >= (uint64_t)(fake_user_stack + sizeof(fake_user_stack))) {
+        fail(name, "return address out of fake stack range");
+        ok = 0;
+    }
+
+    /* [new_rsp+8] must be the signal number (SIGTERM=15) */
+    uint64_t sig_arg = *(uint64_t*)(fake_regs.rsp + 8);
+    /* In task_check_pending_signals, 'sig' is pushed directly */
+    if (sig_arg != 15) {
+         fail(name, "sig_num arg wrong on x64");
+         ok = 0;
+    }
+#else
     /* The new ESP must be below the original ESP (stack built downward) */
     if (fake_regs.esp >= fake_user_esp) {
         fail(name, "new ESP not below original");
@@ -377,6 +426,7 @@ static void test_handler_frame_mutation() {
         fail(name, "sig_num arg wrong");
         ok = 0;
     }
+#endif
 
     /* The 7 trampoline bytes at ret_addr must be: B8 32 00 00 00 CD 80 */
     uint8_t *tramp = (uint8_t*)ret_addr;

@@ -18,6 +18,7 @@
 
 // Flag to indicate if higher-half mapping (PHYSMAP) is active
 int mmu_high_active = 0;
+extern mmu_context_t *current_directory;
 
 // Helper to get a virtual pointer to a physical page frame
 // Using the PHYSMAP concept from Phase 0
@@ -230,6 +231,10 @@ page_t *get_page(virt_addr_t address, int make, page_directory_t *dir) {
 
 void switch_page_directory(page_directory_t *dir) {
     mmu_switch(dir);
+}
+
+void unmap_page(virt_addr_t address) {
+    mmu_unmap_page(current_directory, address);
 }
 
 page_directory_t *clone_page_directory(page_directory_t *src) {
