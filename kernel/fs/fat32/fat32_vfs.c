@@ -135,7 +135,7 @@ static fs_node_t* fat32_vfs_finddir(fs_node_t *node, char *name) {
                     strcpy(child->name, name);
                     child->length = entries[i].size;
                     child->inode = (entries[i].cluster_hi << 16) | entries[i].cluster_lo;
-                    child->impl = (void*)node->inode; // parent cluster
+                    child->impl = (void*)(uintptr_t)node->inode; // parent cluster
                     child->mask = node->mask;  /* inherit mount index */
                     child->flags = (entries[i].attr & FAT_ATTR_DIR) ? FS_DIRECTORY : FS_FILE;
                     child->flags |= FS_TRANSIENT;
@@ -229,7 +229,7 @@ static int fat32_vfs_expand(fs_node_t *node, uint32_t new_size) {
             last_cluster = start;
             current_clusters = 1;
             
-            fat32_update_dirent(dev, m, (uint32_t)node->impl, node->name, 0xFFFFFFFF, start);
+            fat32_update_dirent(dev, m, (uint32_t)(uintptr_t)node->impl, node->name, 0xFFFFFFFF, start);
             
             uint32_t start_lba = fat32_cluster_to_lba(m, start);
             uint8_t zero[512]; memory_set(zero, 0, 512);
@@ -260,7 +260,7 @@ static int fat32_vfs_expand(fs_node_t *node, uint32_t new_size) {
     }
 
     node->length = new_size;
-    return fat32_update_dirent(dev, m, (uint32_t)node->impl, node->name, new_size, 0xFFFFFFFF);
+    return fat32_update_dirent(dev, m, (uint32_t)(uintptr_t)node->impl, node->name, new_size, 0xFFFFFFFF);
 }
 
 /**

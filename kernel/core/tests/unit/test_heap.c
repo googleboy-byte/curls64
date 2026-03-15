@@ -6,7 +6,7 @@
 void test_heap() {
     kprint("Testing Kernel Heap...\n");
 
-    uint32_t a = (uint32_t)kmalloc(16, 0, 0);
+    uintptr_t a = (uintptr_t)kmalloc(16, 0, 0);
     kprint("Allocated 16 bytes at ");
     char str[32]; // Increased size for safety
     str[0] = '\0';
@@ -14,7 +14,7 @@ void test_heap() {
     kprint(str);
     kprint("\n");
 
-    uint32_t b = (uint32_t)kmalloc(64, 0, 0);
+    uintptr_t b = (uintptr_t)kmalloc(64, 0, 0);
     kprint("Allocated 64 bytes at ");
     str[0] = '\0';
     hex_to_ascii(b, str);
@@ -28,7 +28,7 @@ void test_heap() {
     kprint("\n");
     kfree((void*)a);
 
-    uint32_t c = (uint32_t)kmalloc(12, 0, 0);
+    uintptr_t c = (uintptr_t)kmalloc(12, 0, 0);
     kprint("Allocated 12 bytes (should reuse space) at 0x");
     hex_to_ascii(c, str);
     kprint(str);

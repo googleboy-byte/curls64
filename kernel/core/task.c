@@ -152,7 +152,7 @@ void init_tasking() {
         current_task->user_esp          = 0x90000;
     }
     current_task->capabilities = CAP_REBOOT | CAP_SHUTDOWN | CAP_SYS_ADMIN;
-    strcpy(current_task->cwd, "/");
+    strcpy((char*)current_task->cwd, "/");
 
     // Set TSS for PID 1 (though it's Ring 0, good for consistency)
     set_kernel_stack(current_task->kernel_stack);

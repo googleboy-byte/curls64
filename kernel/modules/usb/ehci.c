@@ -116,9 +116,15 @@ static int ehci_reset(void) {
 // ============================================================================
 
 static volatile uint32_t *ehci_map_mmio(uint32_t phys_addr, uint32_t size) {
-    uint32_t virt = PHYSMAP_BASE + phys_addr;
+    virt_addr_t virt = PHYSMAP_BASE + phys_addr;
     for (uint32_t offset = 0; offset < size; offset += 0x1000) {
         page_t *page = get_page(virt + offset, 1, kernel_directory);
+#ifdef ARCH_X86_64
+        if (!PAGE_PRESENT(*page)) {
+            PAGE_SET_FRAME(page, phys_addr + offset);
+            PAGE_SET_FLAGS(page, MMU_PRESENT | MMU_WRITABLE | MMU_PCD | MMU_PWT);
+        }
+#else
         if (!page->present) {
             page->frame   = (phys_addr + offset) >> 12;
             page->present = 1;
@@ -127,8 +133,9 @@ static volatile uint32_t *ehci_map_mmio(uint32_t phys_addr, uint32_t size) {
             page->pcd     = 1;
             page->pwt     = 1;
         }
+#endif
     }
-    return (volatile uint32_t *)virt;
+    return (volatile uint32_t *)(uintptr_t)virt;
 }
 
 // ============================================================================
@@ -139,7 +146,9 @@ static int ehci_setup_async(void) {
     /* Allocate the head QH for the async circular list.
      * This QH is always present and points to itself (empty schedule).
      * Real transfer QHs get inserted after it. */
-    ehci.async_qh = (ehci_qh_t *)kmalloc(sizeof(ehci_qh_t), 1, &ehci.async_qh_phys);
+    phys_addr_t tmp_phys;
+    ehci.async_qh = (ehci_qh_t *)kmalloc(sizeof(ehci_qh_t), 1, &tmp_phys);
+    ehci.async_qh_phys = (uint32_t)tmp_phys;
     if (!ehci.async_qh) return KABI_ENOMEM;
     memory_set((uint8_t *)ehci.async_qh, 0, sizeof(ehci_qh_t));
 
@@ -173,7 +182,7 @@ int ehci_control_transfer(uint8_t dev_addr, uint8_t ep,
     if (!ehci.initialized) return KABI_EIO;
 
     /* Allocate QH and qTDs (2 or 3 depending on data phase) */
-    uint32_t qh_phys, setup_phys, data_phys = 0, status_phys;
+    phys_addr_t qh_phys, setup_phys, data_phys = 0, status_phys;
     ehci_qh_t *qh = (ehci_qh_t *)kmalloc(sizeof(ehci_qh_t), 1, &qh_phys);
     ehci_qtd_t *setup_qtd = (ehci_qtd_t *)kmalloc(sizeof(ehci_qtd_t), 1, &setup_phys);
     ehci_qtd_t *status_qtd = (ehci_qtd_t *)kmalloc(sizeof(ehci_qtd_t), 1, &status_phys);
@@ -186,14 +195,14 @@ int ehci_control_transfer(uint8_t dev_addr, uint8_t ep,
     memory_set((uint8_t *)status_qtd, 0, sizeof(ehci_qtd_t));
 
     /* Copy setup packet to a physically-addressed buffer */
-    uint32_t setup_buf_phys;
+    phys_addr_t setup_buf_phys;
     uint8_t *setup_buf = (uint8_t *)kmalloc(8, 1, &setup_buf_phys);
     if (!setup_buf) goto fail;
     memory_copy((uint8_t *)setup, setup_buf, 8);
 
     /* Data buffer (if any) */
     uint8_t *data_buf = NULL;
-    uint32_t data_buf_phys = 0;
+    phys_addr_t data_buf_phys = 0;
     if (data_len > 0 && data) {
         data_qtd = (ehci_qtd_t *)kmalloc(sizeof(ehci_qtd_t), 1, &data_phys);
         if (!data_qtd) goto fail;
@@ -298,7 +307,7 @@ int ehci_bulk_transfer(uint8_t dev_addr, uint8_t ep,
                        int direction, uint8_t *toggle) {
     if (!ehci.initialized || !data || data_len == 0 || !toggle) return KABI_EIO;
 
-    uint32_t qh_phys, qtd_phys;
+    phys_addr_t qh_phys, qtd_phys;
     ehci_qh_t *qh = (ehci_qh_t *)kmalloc(sizeof(ehci_qh_t), 1, &qh_phys);
     ehci_qtd_t *qtd = (ehci_qtd_t *)kmalloc(sizeof(ehci_qtd_t), 1, &qtd_phys);
     if (!qh || !qtd) {
@@ -310,7 +319,7 @@ int ehci_bulk_transfer(uint8_t dev_addr, uint8_t ep,
     memory_set((uint8_t *)qtd, 0, sizeof(ehci_qtd_t));
 
     /* Data buffer copy */
-    uint32_t buf_phys;
+    phys_addr_t buf_phys;
     uint8_t *buf = (uint8_t *)kmalloc(data_len, 1, &buf_phys);
     if (!buf) { kfree(qh); kfree(qtd); return KABI_ENOMEM; }
 
