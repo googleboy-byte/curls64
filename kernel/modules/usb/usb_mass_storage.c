@@ -197,10 +197,10 @@ static int msc_write_sector(msc_device_t *dev, uint32_t lba, uint8_t *buf) {
 // ============================================================================
 
 /* We need static wrappers because block_dev expects (lba, buf) signature */
-static int msc_block_read_0(uint32_t lba, uint8_t *buf)  { return msc_read_sector(&msc_devices[0], lba, buf); }
-static int msc_block_write_0(uint32_t lba, uint8_t *buf) { return msc_write_sector(&msc_devices[0], lba, buf); }
-static int msc_block_read_1(uint32_t lba, uint8_t *buf)  { return msc_read_sector(&msc_devices[1], lba, buf); }
-static int msc_block_write_1(uint32_t lba, uint8_t *buf) { return msc_write_sector(&msc_devices[1], lba, buf); }
+static int msc_block_read_0(uint64_t lba, uint8_t *buf)  { return msc_read_sector(&msc_devices[0], (uint32_t)lba, buf); }
+static int msc_block_write_0(uint64_t lba, uint8_t *buf) { return msc_write_sector(&msc_devices[0], (uint32_t)lba, buf); }
+static int msc_block_read_1(uint64_t lba, uint8_t *buf)  { return msc_read_sector(&msc_devices[1], (uint32_t)lba, buf); }
+static int msc_block_write_1(uint64_t lba, uint8_t *buf) { return msc_write_sector(&msc_devices[1], (uint32_t)lba, buf); }
 
 static block_read_type_t msc_read_funcs[]  = { msc_block_read_0,  msc_block_read_1 };
 static block_write_type_t msc_write_funcs[] = { msc_block_write_0, msc_block_write_1 };

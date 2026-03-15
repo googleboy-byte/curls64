@@ -111,6 +111,11 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                kernel/modules/drivers/keyboard.o64 \
                kernel/modules/drivers/fb.o64 \
                kernel/modules/drivers/ide.o64 \
+               kernel/modules/drivers/pci.o64 \
+               kernel/modules/usb/ehci.o64 \
+               kernel/modules/usb/uhci.o64 \
+               kernel/modules/usb/usb_core.o64 \
+               kernel/modules/usb/usb_mass_storage.o64 \
                kernel/modules/partition/mbr.o64 \
                kernel/modules/fs_initrd/initrd.o64 \
                kernel/modules/fs_initrd/initrd_data.o64 \
@@ -132,7 +137,13 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                 kernel/core/tests/unit/test_pipe.o64 \
                 kernel/core/tests/unit/test_signal.o64 \
                 kernel/core/tests/unit/test_heap.o64 \
-                kernel/core/tests/stress/test_stress.o64 \
+               kernel/core/tests/stress/test_stress.o64 \
+               kernel/modules/test/test_drivers.o64 \
+               kernel/modules/test/test_fs_initrd.o64 \
+               kernel/modules/test/test_partition.o64 \
+               kernel/modules/test/test_sched_rr.o64 \
+               kernel/modules/test/test_sysmon.o64 \
+               kernel/modules/test/test_usb.o64 \
                kernel/modules/test/module_tests_runner.o64 \
                libc/mem.o64 \
                libc/string.o64 \

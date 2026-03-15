@@ -718,4 +718,7 @@ void run_core_test64_v1() {
     } else {
         kprint("\n[ CORE TEST 64 ] TEST_CORE64_V1.0: FAILED\n");
     }
+
+    extern void run_all_module_tests(void);
+    run_all_module_tests();
 }

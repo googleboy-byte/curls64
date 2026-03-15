@@ -131,7 +131,7 @@ int uhci_control_transfer(uint8_t dev_addr, uint8_t ep,
 
     /* Allocate TDs with physical addresses */
     uhci_td_t *tds_virt[16];
-    uint32_t   tds_phys[16];
+    phys_addr_t   tds_phys[16];
     if (total_tds > 16) return KABI_ENOMEM;
 
     for (int i = 0; i < total_tds; i++) {
@@ -144,14 +144,14 @@ int uhci_control_transfer(uint8_t dev_addr, uint8_t ep,
     }
 
     /* Allocate setup buffer (8 bytes, physically addressed) */
-    uint32_t setup_buf_phys;
+    phys_addr_t setup_buf_phys;
     uint8_t *setup_buf = (uint8_t *)kmalloc(8, 1, &setup_buf_phys);
     if (!setup_buf) goto fail;
     memory_copy((uint8_t *)setup, setup_buf, 8);
 
     /* Allocate data buffer if needed */
     uint8_t *data_buf = NULL;
-    uint32_t data_buf_phys = 0;
+    phys_addr_t data_buf_phys = 0;
     if (data_len > 0 && data) {
         data_buf = (uint8_t *)kmalloc(data_len, 1, &data_buf_phys);
         if (!data_buf) { kfree(setup_buf); goto fail; }
@@ -328,7 +328,7 @@ int uhci_bulk_transfer(uint8_t dev_addr, uint8_t ep,
     if (num_tds > 16) return KABI_ENOMEM;
 
     uhci_td_t *tds_virt[16];
-    uint32_t   tds_phys[16];
+    phys_addr_t   tds_phys[16];
 
     for (int i = 0; i < num_tds; i++) {
         tds_virt[i] = (uhci_td_t *)kmalloc(sizeof(uhci_td_t), 1, &tds_phys[i]);
@@ -340,7 +340,7 @@ int uhci_bulk_transfer(uint8_t dev_addr, uint8_t ep,
     }
 
     /* Allocate physically-addressed data buffer */
-    uint32_t buf_phys;
+    phys_addr_t buf_phys;
     uint8_t *buf = (uint8_t *)kmalloc(data_len, 1, &buf_phys);
     if (!buf) {
         for (int i = 0; i < num_tds; i++) kfree(tds_virt[i]);
@@ -542,14 +542,18 @@ int uhci_init(void) {
     uhci.num_ports = 2;
 
     /* Allocate frame list (1024 entries, 4KB aligned) — need physical address */
-    uhci.frame_list = (uint32_t *)kmalloc(4096, 1, &uhci.frame_list_phys);
+    phys_addr_t tmp_frame_list_phys;
+    uhci.frame_list = (uint32_t *)kmalloc(4096, 1, &tmp_frame_list_phys);
+    uhci.frame_list_phys = (uint32_t)tmp_frame_list_phys;
     if (!uhci.frame_list) {
         kprint("[UHCI] Failed to allocate frame list\n");
         return KABI_ENOMEM;
     }
 
     /* Allocate async QH — need physical address */
-    uhci.async_qh = (uhci_qh_t *)kmalloc(sizeof(uhci_qh_t), 1, &uhci.async_qh_phys);
+    phys_addr_t tmp_async_qh_phys;
+    uhci.async_qh = (uhci_qh_t *)kmalloc(sizeof(uhci_qh_t), 1, &tmp_async_qh_phys);
+    uhci.async_qh_phys = (uint32_t)tmp_async_qh_phys;
     if (!uhci.async_qh) {
         kfree(uhci.frame_list);
         kprint("[UHCI] Failed to allocate async QH\n");
