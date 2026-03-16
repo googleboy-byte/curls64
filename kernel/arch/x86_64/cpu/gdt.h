@@ -8,7 +8,9 @@
 #define GDT_KERNEL_DS  2
 #define GDT_USER_CS    3
 #define GDT_USER_DS    4
-#define GDT_TSS_BASE   5
+#define GDT_USER_CS32  5   // 32-bit compat mode user code (L=0, D=1)
+#define GDT_USER_DS32  6   // 32-bit compat mode user data (D=1, limit=4GB)
+#define GDT_TSS_BASE   7
 
 // Standard 64-bit GDT Entry (8 bytes)
 struct gdt_entry64_struct {

@@ -65,6 +65,8 @@ static int32_t find_smallest_hole(size_t size, uint8_t page_align, heap_t *heap)
             size_t offset = 0;
             if (((location + sizeof(header_t)) & 0xFFF) != 0)
                 offset = 0x1000 - (location + sizeof(header_t)) % 0x1000;
+            // Guard against underflow: skip holes too small for alignment
+            if (offset >= (size_t)header->size) { iterator++; continue; }
             size_t hole_size = (size_t)header->size - offset;
             /* Can we fit it? */
             if (hole_size >= size) break;
@@ -122,20 +124,25 @@ void *alloc(size_t size, uint8_t page_align, heap_t *heap) {
         virt_addr_t new_pos = (orig_hole_pos + sizeof(header_t) + 0xFFF) & ~0xFFFULL;
         virt_addr_t new_header_pos = new_pos - sizeof(header_t);
         
-        // Create prefix hole
-        header_t *pref_header = (header_t *)orig_hole_pos;
-        pref_header->size = (uint32_t)(new_header_pos - orig_hole_pos);
-        pref_header->magic = HEAP_MAGIC;
-        pref_header->is_hole = 1;
-        footer_t *pref_footer = (footer_t *) (new_header_pos - sizeof(footer_t));
-        pref_footer->magic = HEAP_MAGIC;
-        pref_footer->header = pref_header;
+        uint32_t prefix_size = (uint32_t)(new_header_pos - orig_hole_pos);
+        
+        if (prefix_size >= sizeof(header_t) + sizeof(footer_t)) {
+            // Create prefix hole only if large enough for proper metadata
+            header_t *pref_header = (header_t *)orig_hole_pos;
+            pref_header->size = prefix_size;
+            pref_header->magic = HEAP_MAGIC;
+            pref_header->is_hole = 1;
+            footer_t *pref_footer = (footer_t *) (new_header_pos - sizeof(footer_t));
+            pref_footer->magic = HEAP_MAGIC;
+            pref_footer->header = pref_header;
 
-        // Re-insert the prefix hole into the index
-        insert_ordered_array((void*)pref_header, &heap->index);
+            // Re-insert the prefix hole into the index
+            insert_ordered_array((void*)pref_header, &heap->index);
+        }
+        // If prefix too small, we silently waste that space (no metadata corruption)
 
         orig_hole_pos = new_header_pos;
-        orig_hole_size -= pref_header->size;
+        orig_hole_size -= prefix_size;
     }
 
     // Now check if we can split the remaining space
@@ -277,6 +284,16 @@ void free(void *p, heap_t *heap) {
         footer = (footer_t*) ( (uintptr_t)header + header->size - sizeof(footer_t) );
         footer->magic = HEAP_MAGIC;
         footer->header = header;
+        
+        // DIAGNOSTIC: check if merge-right created hole spanning PID2
+        if ((uintptr_t)header <= 0xFFFFA00000104000ULL && (uintptr_t)header + header->size > 0xFFFFA00000104000ULL) {
+            char s[32];
+            kprint("[HEAP BUG] merge-right created hole spanning PID2!\n");
+            kprint("  hole=0x"); hex64_to_ascii((uintptr_t)header, s); kprint(s);
+            kprint(" size=0x"); hex64_to_ascii(header->size, s); kprint(s);
+            kprint(" freed_p=0x"); hex64_to_ascii((uintptr_t)p, s); kprint(s); kprint("\n");
+            panic("HEAP: merge-right spans PID2 stack");
+        }
     }
 
     // Merge left
@@ -296,6 +313,16 @@ void free(void *p, heap_t *heap) {
             iterator++;
         if (iterator < heap->index.size)
             remove_ordered_array(iterator, &heap->index);
+        
+        // DIAGNOSTIC: check if merge-left created hole spanning PID2
+        if ((uintptr_t)header <= 0xFFFFA00000104000ULL && (uintptr_t)header + header->size > 0xFFFFA00000104000ULL) {
+            char s[32];
+            kprint("[HEAP BUG] merge-left created hole spanning PID2!\n");
+            kprint("  hole=0x"); hex64_to_ascii((uintptr_t)header, s); kprint(s);
+            kprint(" size=0x"); hex64_to_ascii(header->size, s); kprint(s);
+            kprint(" freed_p=0x"); hex64_to_ascii((uintptr_t)p, s); kprint(s); kprint("\n");
+            panic("HEAP: merge-left spans PID2 stack");
+        }
     }
 
     insert_ordered_array((void*)header, &heap->index);
@@ -323,6 +350,7 @@ void insert_ordered_array(void *item, ordered_array_t *array) {
     if (array->size >= array->max_size) {
         panic("Ordered array: index is full (potential heap overflow)");
     }
+    
     uint32_t iterator = 0;
     while (iterator < array->size && array->less_than(array->array[iterator], item))
         iterator++;

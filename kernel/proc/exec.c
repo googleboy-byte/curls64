@@ -20,9 +20,9 @@ extern int elf_validate(void *image);
 extern int elf_load_image_from_buffer(uint8_t *image, size_t size, page_directory_t *pd, elf_load_result_t *out);
 int sys_execve(const char *path, char **argv, registers_t *regs);
 
-static virt_addr_t build_user_stack(page_directory_t *pd, char **argv) {
+static virt_addr_t build_user_stack(page_directory_t *pd, char **argv, virt_addr_t stack_top, virt_addr_t stack_size) {
     // 1. Map user stack pages
-    for (virt_addr_t v = USER_STACK_TOP - USER_STACK_SIZE; v < USER_STACK_TOP; v += 0x1000) {
+    for (virt_addr_t v = stack_top - stack_size; v < stack_top; v += 0x1000) {
         page_t *page = get_page(v, 1, pd);
 #ifdef ARCH_X86_64
         if (!PAGE_PRESENT(*page)) {
@@ -48,7 +48,7 @@ static virt_addr_t build_user_stack(page_directory_t *pd, char **argv) {
         while (argv[argc]) argc++;
     }
 
-    virt_addr_t sp = USER_STACK_TOP;
+    virt_addr_t sp = stack_top;
     virt_addr_t argv_ptrs[64]; // Limit 64 args
     if (argc > 64) argc = 64;
 
@@ -82,42 +82,82 @@ static virt_addr_t build_user_stack(page_directory_t *pd, char **argv) {
     }
 
     // Align stack
-    sp &= ~0xF; 
+    sp &= ~0xFULL; 
 
 #ifdef ARCH_X86_64
-    // 64-bit alignment and conventions
-    // Push NULL char*
-    sp -= 8;
-    {
-        page_t *p = get_page(sp, 0, pd);
-        uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
-        *(uint64_t*)(PHYSMAP_BASE + phys) = 0;
-    }
-
-    // Push argv pointers (64-bit)
-    for (int i = (int)argc - 1; i >= 0; i--) {
+    int compat32 = (stack_top < 0x100000000ULL); // 32-bit compat mode ELF
+    
+    if (!compat32) {
+        // 64-bit stack layout (8-byte entries)
+        // Push NULL char*
         sp -= 8;
-        page_t *p = get_page(sp, 0, pd);
-        uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
-        *(uint64_t*)(PHYSMAP_BASE + phys) = argv_ptrs[i];
-    }
-
-    // Push argc
-    sp -= 8;
-    {
-        page_t *p = get_page(sp, 0, pd);
-        uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
-        if (kabi_debug_enabled()) {
-            char s[20], sp_s[20];
-            hex64_to_ascii((uint64_t)argc, s);
-            hex64_to_ascii(sp, sp_s);
-            kprint("[EXEC] Writing argc "); kprint(s); kprint(" to user stack at 0x"); kprint(sp_s);
-            kprint(" (phys: 0x"); hex64_to_ascii(phys, s); kprint(s); kprint(")\n");
+        {
+            page_t *p = get_page(sp, 0, pd);
+            uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
+            *(uint64_t*)(PHYSMAP_BASE + phys) = 0;
         }
-        *(uint64_t*)(PHYSMAP_BASE + phys) = (uint64_t)argc;
+
+        // Push argv pointers (64-bit)
+        for (int i = (int)argc - 1; i >= 0; i--) {
+            sp -= 8;
+            page_t *p = get_page(sp, 0, pd);
+            uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
+            *(uint64_t*)(PHYSMAP_BASE + phys) = argv_ptrs[i];
+        }
+
+        // Push argc
+        sp -= 8;
+        {
+            page_t *p = get_page(sp, 0, pd);
+            uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
+            *(uint64_t*)(PHYSMAP_BASE + phys) = (uint64_t)argc;
+        }
+    } else {
+        // 32-bit compat stack layout (4-byte entries)
+        // Push NULL
+        sp -= 4;
+        {
+            page_t *p = get_page(sp, 0, pd);
+            uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
+            *(uint32_t*)(PHYSMAP_BASE + phys) = 0;
+        }
+
+        // Push argv pointers (32-bit)
+        for (int i = (int)argc - 1; i >= 0; i--) {
+            sp -= 4;
+            page_t *p = get_page(sp, 0, pd);
+            uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
+            *(uint32_t*)(PHYSMAP_BASE + phys) = (uint32_t)argv_ptrs[i];
+        }
+
+        virt_addr_t argv_array_ptr = sp;
+
+        // Push argv pointer
+        sp -= 4;
+        {
+            page_t *p = get_page(sp, 0, pd);
+            uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
+            *(uint32_t*)(PHYSMAP_BASE + phys) = (uint32_t)argv_array_ptr;
+        }
+
+        // Push argc
+        sp -= 4;
+        {
+            page_t *p = get_page(sp, 0, pd);
+            uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
+            *(uint32_t*)(PHYSMAP_BASE + phys) = (uint32_t)argc;
+        }
+
+        // Push fake return address (0) for 32-bit CRT compatibility
+        sp -= 4;
+        {
+            page_t *p = get_page(sp, 0, pd);
+            uintptr_t phys = PAGE_FRAME(*p) + (sp % 0x1000);
+            *(uint32_t*)(PHYSMAP_BASE + phys) = 0;
+        }
     }
 #else
-    // 32-bit stack layout
+    // 32-bit kernel: always 32-bit stack layout
     // Push NULL
     sp -= 4;
     {
@@ -151,9 +191,7 @@ static virt_addr_t build_user_stack(page_directory_t *pd, char **argv) {
         uintptr_t phys = PAGE_FRAME(p) + (sp % 0x1000);
         *(uint32_t*)(PHYSMAP_BASE + phys) = argc;
     }
-#endif
 
-#ifndef ARCH_X86_64
     // Push fake return address (always 0) for 32-bit legacy CRT compatibility
     sp -= sizeof(virt_addr_t);
     {
@@ -195,10 +233,21 @@ int sys_execve(const char *path, char **argv, registers_t *regs) {
         if (node->flags & FS_TRANSIENT) kfree(node);
         return -KABI_EIO;
     }
+    int is_elf32 = (image[EI_CLASS] == ELFCLASS32);
     kfree(image);
     if (node->flags & FS_TRANSIENT) kfree(node);
 
-    virt_addr_t new_sp = build_user_stack(new_pd, argv);
+    virt_addr_t elf_stack_top;
+    virt_addr_t elf_stack_size;
+    if (is_elf32) {
+        elf_stack_top = 0xBFFFF000;
+        elf_stack_size = 0x4000; // 16KB for 32-bit
+    } else {
+        elf_stack_top = 0x00007FFFFFFFF000ULL;
+        elf_stack_size = 0x8000; // 32KB for 64-bit
+    }
+
+    virt_addr_t new_sp = build_user_stack(new_pd, argv, elf_stack_top, elf_stack_size);
     if (!new_sp) {
         free_page_directory(new_pd);
         return -KABI_ENOMEM;
@@ -265,6 +314,12 @@ int sys_execve(const char *path, char **argv, registers_t *regs) {
     // Selectors for 64-bit User Mode
     regs->cs = 0x1B;
     regs->ss = 0x23;
+
+    // If this is a 32-bit ELF, use compat mode selectors
+    if (is_elf32) {
+        regs->cs = 0x2B; // GDT_USER_CS32 | RPL=3
+        regs->ss = 0x33; // GDT_USER_DS32 | RPL=3
+    }
 #else
     regs->eip = res.entry;
     regs->esp = new_sp;

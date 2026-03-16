@@ -44,7 +44,7 @@ int elf32_load_segments(void *image, page_directory_t *pd) {
         uint32_t offset = ph[i].offset;
 
         // Map user range
-        for (uint32_t v = va & 0xFFFFF000; v < va + memsz; v += 0x1000) {
+        for (uint64_t v = va & ~0xFFFULL; v < (uint64_t)va + memsz; v += 0x1000) {
             page_t *page = get_page(v, 1, pd);
 #ifdef ARCH_X86_64
             if (!PAGE_PRESENT(*page)) {
@@ -55,7 +55,7 @@ int elf32_load_segments(void *image, page_directory_t *pd) {
                 frame_add_ref(frame);
             } else {
                 // If it was already present (identity map), ensure it has WRITABLE and USER bits
-                *page |= (MMU_WRITABLE | MMU_USER);
+                PAGE_SET_FLAGS(page, MMU_PRESENT | MMU_WRITABLE | MMU_USER);
             }
 #else
             if (!page->present) {
@@ -69,13 +69,13 @@ int elf32_load_segments(void *image, page_directory_t *pd) {
         }
 
         // Copy segment data using PHYSMAP
-        uint32_t bytes_left = filesz;
+        uint64_t bytes_left = filesz;
         uintptr_t src_ptr = (uintptr_t)image + offset;
-        uint32_t dest_va = va;
+        uint64_t dest_va = va;
         
         while (bytes_left > 0) {
-            uint32_t va_offset = dest_va % 0x1000;
-            uint32_t to_copy = 0x1000 - va_offset;
+            uint64_t va_offset = dest_va % 0x1000;
+            uint64_t to_copy = 0x1000 - va_offset;
             if (to_copy > bytes_left) to_copy = bytes_left;
             
             page_t *page = get_page(dest_va, 0, pd);
@@ -86,7 +86,7 @@ int elf32_load_segments(void *image, page_directory_t *pd) {
 #else
             uintptr_t phys = PAGE_FRAME(page) + va_offset;
 #endif
-            memory_copy((uint8_t*)src_ptr, (uint8_t*)(PHYSMAP_BASE + phys), to_copy);
+            memory_copy((uint8_t*)src_ptr, (uint8_t*)(PHYSMAP_BASE + phys), (uint32_t)to_copy);
             
             bytes_left -= to_copy;
             src_ptr += to_copy;
@@ -95,10 +95,10 @@ int elf32_load_segments(void *image, page_directory_t *pd) {
 
         // Zero BSS tail
         if (memsz > filesz) {
-            uint32_t bss_left = memsz - filesz;
+            uint64_t bss_left = memsz - filesz;
             while (bss_left > 0) {
-                uint32_t va_offset = dest_va % 0x1000;
-                uint32_t to_zero = 0x1000 - va_offset;
+                uint64_t va_offset = dest_va % 0x1000;
+                uint64_t to_zero = 0x1000 - va_offset;
                 if (to_zero > bss_left) to_zero = bss_left;
                 
                 page_t *page = get_page(dest_va, 0, pd);
@@ -109,7 +109,7 @@ int elf32_load_segments(void *image, page_directory_t *pd) {
 #else
                 uintptr_t phys = PAGE_FRAME(page) + va_offset;
 #endif
-                memory_set((uint8_t*)(PHYSMAP_BASE + phys), 0, to_zero);
+                memory_set((uint8_t*)(PHYSMAP_BASE + phys), 0, (uint32_t)to_zero);
                 
                 bss_left -= to_zero;
                 dest_va += to_zero;

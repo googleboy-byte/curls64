@@ -11,13 +11,20 @@ int get_debug_pipe_count() {
 
 pipe_t* pipe_create(uint32_t size) {
     pipe_t *p = (pipe_t*)kmalloc(sizeof(pipe_t), 0, 0);
+    if (!p) return 0;
+    memory_set((uint8_t*)p, 0, sizeof(pipe_t));
+    
     p->size = size;
     p->buffer = (uint8_t*)kmalloc(p->size, 0, 0);
+    if (!p->buffer) { kfree(p); return 0; }
+    
     p->head = 0;
     p->tail = 0;
     p->len = 0;
     p->readers = 0;
     p->writers = 0;
+    p->waiting_task = 0;
+    
     debug_pipe_count++;
     return p;
 }

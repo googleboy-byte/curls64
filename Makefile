@@ -287,7 +287,7 @@ run-grub64-verify-debug: build/kernel64_verify.elf $(IMG) | $(LOG_DIR) $(ISO_DIR
 	cp $(BUILD_DIR)/kernel64_verify.elf $(ISO_DIR)/boot/kernel.elf
 	printf 'set timeout=0\nset default=0\nmenuentry \"Curls x64 Verify Debug\" {\n  multiboot2 /boot/kernel.elf\n  boot\n}\n' > $(ISO_DIR)/boot/grub/grub.cfg
 	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
-	qemu-system-x86_64 -cdrom $(ISO_IMG) -hda $(IMG) -boot d -m 256 -serial mon:stdio -nographic -d int,cpu_reset -D $(LOG_DIR)/qemu-verify-debug.log
+	qemu-system-x86_64 -cdrom $(ISO_IMG) -hda $(IMG) -boot d -m 256 -nographic -d int,cpu_reset -D $(LOG_DIR)/qemu-verify-debug.log 2>&1 | tee $(LOG_DIR)/qemu-verify-serial-debug.log
 
 live-usb: iso
 	sudo FORCE=$(FORCE) bash scripts/make_live_usb.sh $(ISO_IMG)

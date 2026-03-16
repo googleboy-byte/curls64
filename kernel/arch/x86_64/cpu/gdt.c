@@ -9,9 +9,9 @@
 extern void gdt_flush(uintptr_t);
 extern void tss_flush(uint32_t selector);
 
-// 5 standard entries (Null, KCode, KData, UCode, UData) 
+// 7 standard entries (Null, KCode, KData, UCode64, UData, UCode32, UData32) 
 // + 2 slots per TSS (16-byte descriptors)
-gdt_entry64_t gdt_entries[5 + (MAX_CPU * 2)];
+gdt_entry64_t gdt_entries[7 + (MAX_CPU * 2)];
 gdt_ptr_t     gdt_ptr;
 
 // For now, we only support one CPU officially in this phase
@@ -49,7 +49,7 @@ static void write_tss64(int32_t num, tss64_entry_t *tss) {
 void init_gdt() {
     kprint("  - [x64] Setting up GDT descriptors...\n");
     
-    gdt_ptr.limit = (sizeof(gdt_entry64_t) * (5 + (MAX_CPU * 2))) - 1;
+    gdt_ptr.limit = (sizeof(gdt_entry64_t) * (7 + (MAX_CPU * 2))) - 1;
     gdt_ptr.base  = (uintptr_t)&gdt_entries;
 
     memory_set((uint8_t*)&gdt_entries, 0, sizeof(gdt_entries));
@@ -64,6 +64,10 @@ void init_gdt() {
     gdt_set_gate(3, 0xFFFFF, 0xFA, 0x20);
     // User Data: Present, Ring 3, Data, Read/Write (0xF2)
     gdt_set_gate(4, 0xFFFFF, 0xF2, 0x00);
+    // User Code 32-bit Compat: Present, Ring 3, Code, Exec/Read (0xFA), D=1/L=0 (0x40 + G=1 -> 0xC0)
+    gdt_set_gate(5, 0xFFFFF, 0xFA, 0xC0);
+    // User Data 32-bit Compat: Present, Ring 3, Data, Read/Write (0xF2), D=1/L=0 (0x40 + G=1 -> 0xC0)
+    gdt_set_gate(6, 0xFFFFF, 0xF2, 0xC0);
 
     kprint("  - [x64] GDT Base: ");
     char s[20]; hex64_to_ascii(gdt_ptr.base, s); kprint(s); kprint("\n");
