@@ -170,8 +170,20 @@ void isr_handler(registers_t *r) {
         isr_t handler = interrupt_handlers[r->int_no];
         handler(r);
     } else {
-        // If we have no handler, we can't do much without a console
-        // For now, kernel will just hang or triple fault if panic is called
+        char s[32];
+        kprint("*** Unhandled ISR #"); int_to_ascii(r->int_no, s); kprint(s);
+        kprint(" err="); hex64_to_ascii(r->err_code, s); kprint(s);
+#ifdef ARCH_X86_64
+        kprint(" RIP="); hex64_to_ascii(r->rip, s); kprint(s);
+        kprint(" CS="); hex64_to_ascii(r->cs, s); kprint(s);
+        kprint(" RSP="); hex64_to_ascii(r->rsp, s); kprint(s);
+#else
+        kprint(" EIP="); hex_to_ascii(r->eip, s); kprint(s);
+#endif
+        kprint("\n");
+        if (r->int_no < 16) {
+            kprint("Exception: "); kprint(exception_messages[r->int_no]); kprint("\n");
+        }
         panic("Unhandled ISR");
     }
     irq_depth--;

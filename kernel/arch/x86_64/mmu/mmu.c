@@ -147,7 +147,7 @@ static void free_table(mmu_table_t *table, int level) {
         } else {
             // Leaf level: decrement frame refcount
             uint64_t frame = (table->entries[i] & ~0xFFFULL) / 0x1000;
-            frame_remove_ref((uint32_t)frame); // Corrected function name
+            frame_remove_ref((uint32_t)frame);
         }
     }
     kfree(table);
@@ -166,9 +166,11 @@ mmu_context_t *mmu_clone_user(mmu_context_t *src) {
     for (int i = 0; i < 512; i++) {
         if (!(src->pml4_virt->entries[i] & MMU_PRESENT)) continue;
 
-        // If it's a kernel range (higher-half or identity low), just share it
-        // For now we assume anything < 256 is user, >= 256 is kernel (simple split)
-        if (i >= 256) {
+        // If it's a kernel range (higher-half or identity low), just share it.
+        // Index 0 holds the identity-mapped low 64MB (kernel memory) and must
+        // NOT be COW-cloned — otherwise freeing the child directory will
+        // decrement refcounts on kernel-critical frames.
+        if (i >= 256 || i == 0) {
             new_pml4->entries[i] = src->pml4_virt->entries[i];
         } else {
             // Clone user PDPT
@@ -250,8 +252,9 @@ void free_page_directory(page_directory_t *dir) {
         return;
     }
 
-    // Only free user-space half of the tables
-    for (int i = 0; i < 256; i++) {
+    // Only free user-space half of the tables.
+    // Skip index 0: identity-mapped low 64MB (shared kernel memory).
+    for (int i = 1; i < 256; i++) {
         if (pml4->entries[i] & MMU_PRESENT) {
             mmu_table_t *pdpt = (mmu_table_t*)phys_to_virt(pml4->entries[i] & ~0xFFFULL);
             free_table(pdpt, 1);

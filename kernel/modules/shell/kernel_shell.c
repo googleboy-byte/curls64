@@ -375,6 +375,7 @@ void kernel_shell() {
     shell_user_input("END");
 #else
     shell_user_input("CORE");
+    shell_user_input("USER"); // DIAGNOSTIC run
 #endif
 
     char input[256];

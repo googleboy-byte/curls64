@@ -96,9 +96,49 @@ static void validate_task(task_t *t) {
     // Stack overflow detection
     uintptr_t *guard = (uintptr_t*)t->kernel_stack_base;
     if (*guard != STACK_MAGIC) {
-        kprint("STACK OVERFLOW on PID "); char s[16]; int_to_ascii(t->id, s); kprint(s); kprint("\n");
+        kprint("STACK OVERFLOW on PID "); char s[32], s2[32]; int_to_ascii(t->id, s); kprint(s);
+        kprint(" (Expected: "); hex64_to_ascii(STACK_MAGIC, s); kprint(s);
+        kprint(", Found: "); hex64_to_ascii(*guard, s); kprint(s);
+        kprint(")\n");
+
+        kprint("Memory dump at guard:\n");
+        for (int i = 0; i < 8; i++) {
+            hex64_to_ascii(guard[i], s);
+            kprint("  +"); int_to_ascii(i*8, s2); kprint(s2); kprint(": "); kprint(s); kprint("\n");
+        }
+
         panic("KERNEL STACK OVERFLOW");
     }
+}
+
+void check_pid2_guard(const char *label) {
+    task_t *t = (task_t*)ready_queue;
+    if (!t) return;
+    task_t *start = t;
+    do {
+        if (t->id == 2 && t->kernel_stack_base) {
+            uintptr_t *guard = (uintptr_t*)t->kernel_stack_base;
+            if (*guard != STACK_MAGIC) {
+                char s[32];
+                kprint("[GUARD CHECK] *** PID 2 CORRUPTED at checkpoint: ");
+                kprint(label);
+                kprint(" ***\n  Guard value: ");
+                hex64_to_ascii(*guard, s); kprint(s);
+                kprint("\n  Stack base: ");
+                hex64_to_ascii(t->kernel_stack_base, s); kprint(s);
+                kprint("\n");
+                // Dump 8 words
+                for (int i = 0; i < 8; i++) {
+                    hex64_to_ascii(guard[i], s);
+                    char s2[16]; int_to_ascii(i*8, s2);
+                    kprint("  +"); kprint(s2); kprint(": "); kprint(s); kprint("\n");
+                }
+                panic("PID 2 guard corrupted (see checkpoint above)");
+            }
+            return;
+        }
+        t = t->next;
+    } while (t && t != start);
 }
 
 void move_stack(void *new_stack_start, uint32_t size) {
@@ -169,6 +209,11 @@ void init_tasking() {
 
     // Create the idle task
     task_t *idle = create_kernel_task(idle_task);
+    
+    char s_base[20], s_top[20];
+    hex64_to_ascii(idle->kernel_stack_base, s_base);
+    hex64_to_ascii(idle->kernel_stack, s_top);
+    kprint("[BOOT] Idle Task (PID 2) Stack: "); kprint(s_base); kprint(" - "); kprint(s_top); kprint("\n");
 
     // Link circularly: boot -> idle -> boot
     current_task->next = idle;
@@ -202,6 +247,7 @@ task_t *create_kernel_task(void (*entry)(void)){
     
     // Poison stack for overflow detection
     memory_set((uint8_t*)base, 0xCC, 0x4000);
+    *(uintptr_t*)base = STACK_MAGIC;
     
     new_task->kernel_stack_base = base;
     new_task->kernel_stack = base + 0x4000; // top
@@ -304,6 +350,7 @@ int sys_fork(registers_t *regs) {
     
     // Poison stack for overflow detection
     memory_set((uint8_t*)base, 0xCC, 0x4000);
+    *(uintptr_t*)base = STACK_MAGIC;
     
     child->kernel_stack_base = base;
     child->kernel_stack = base + 0x4000;
@@ -330,7 +377,12 @@ int sys_fork(registers_t *regs) {
 
     registers_t *child_regs = (registers_t*)child->user_esp;
     child_regs->rax = 0;             // Child returns 0
-    child_regs->rsp += stack_shift;  // Fix RSP so iretq lands on child's stack, not parent's
+    // Only adjust RSP for kernel-mode forks (ring 0).
+    // For user-mode forks (ring 3), regs->rsp is the user's stack pointer
+    // (pushed by the CPU on int 0x80) and must NOT be shifted.
+    if ((regs->cs & 0x3) == 0) {
+        child_regs->rsp += stack_shift;
+    }
 
     // PHASE 4.1: Parent-Relative EBP Chain Fixup
     virt_addr_t src_stack_base = parent->kernel_stack_base;
@@ -469,6 +521,7 @@ int spawn_process(virt_addr_t entry_point, virt_addr_t user_stack) {
     
     // Poison stack for overflow detection
     memory_set((uint8_t*)stack_base, 0xCC, 0x4000);
+    *(uintptr_t*)stack_base = STACK_MAGIC;
 
     new_task->kernel_stack_base = stack_base;
     new_task->kernel_stack = stack_base + 0x4000; // Stack top
@@ -770,7 +823,7 @@ void reap_zombies() {
             }
 
             // Free paging resources (and release COW frames)
-            if (to_free->page_directory) {
+            if (to_free->page_directory && to_free->page_directory != kernel_directory) {
                 free_page_directory(to_free->page_directory);
             }
 
@@ -845,10 +898,10 @@ void task_switch(registers_t *regs) {
     prev_task->user_esp = (virt_addr_t)regs;
     
     if (kabi_debug_enabled()) {
-        char s[16];
+        char s[32];
         int_to_ascii(prev_task->id, s);
         kprint("[SCHED] Save: PID "); kprint(s); 
-        kprint(" (REGS=0x"); hex64_to_ascii((uint64_t)prev_task->user_esp, s); kprint(s); kprint(")\n");
+        kprint(" (REGS="); hex64_to_ascii((uint64_t)prev_task->user_esp, s); kprint(s); kprint(")\n");
     }
 
     if (prev_task->state == TASK_RUNNING) {
@@ -888,16 +941,13 @@ void task_switch(registers_t *regs) {
     current_task->state = TASK_RUNNING;
 
     if (kabi_debug_enabled()) {
-        char s[16], s2[16], rip_s[20]; 
+        char s[32], s2[32], rip_s[32]; 
         int_to_ascii(prev_task->id, s); int_to_ascii(current_task->id, s2);
         
-        registers_t *target_regs = (registers_t*)current_task->user_esp;
-        hex64_to_ascii(target_regs->rip, rip_s);
-        
         kprint("[SCHED] Switch: PID "); kprint(s); kprint(" -> "); kprint(s2);
-        kprint(" RESTORE=0x"); hex64_to_ascii(current_task->user_esp, s); kprint(s);
-        kprint(" RIP=0x"); kprint(rip_s);
-        kprint(" CS=0x"); hex_to_ascii((uint32_t)target_regs->cs, s); kprint(s);
+        kprint(" RESTORE="); hex64_to_ascii(current_task->user_esp,  s); kprint(s);
+        kprint(" RIP="); hex64_to_ascii(current_task->user_eip, rip_s); kprint(rip_s);
+        kprint(" CS="); int_to_ascii(current_task->page_directory ? 0x1B : 0x08, s); kprint(s);
         kprint("\n");
     }
 

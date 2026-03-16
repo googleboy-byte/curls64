@@ -7,7 +7,11 @@
 #include <stdint.h>
 #include "../cpu/isr.h"
 #include "vfs_core.h" // Added for file_t and MAX_FD
+#ifdef ARCH_X86_64
+#include "../arch/x86_64/cpu/gdt.h"
+#else
 #include "../cpu/gdt.h"
+#endif
 #include "signal.h"
 
 #define TASK_READY 0
@@ -84,7 +88,11 @@ typedef struct cpu_local{
 
     // irq / nesting state
     uint32_t irq_depth;
+#ifdef ARCH_X86_64
+    tss64_entry_t tss;
+#else
     tss_entry_t tss;
+#endif
 
     // for the future
     // per-cpu ktrace buffer
@@ -151,6 +159,7 @@ int  task_send_signal(int pid, int sig);
 void task_send_sigint_foreground(void);
 
 void panic(char *message);
+void check_pid2_guard(const char *label);
 
 #include "../../include/kabi/kabi_v1.h"
 
