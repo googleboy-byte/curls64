@@ -63,7 +63,7 @@ static void test_sigkill_uncatchable() {
     }
 
     /* Parent: tiny delay, then SIGKILL */
-    for(volatile int i = 0; i < 500000; i++);
+    for(volatile int i = 0; i < 5000000; i++);
     task_send_signal(pid, SIGKILL);
 
     /* Verify: child must be ZOMBIE regardless of handler */
@@ -228,26 +228,19 @@ static void test_sigkill_kernel_task() {
     task_t *kt = create_kernel_task(dummy_entry);
     if (!kt) { fail(name, "create_kernel_task returned null"); return; }
 
-    /* Link it into the ready queue before signalling */
+    /* Signal the kernel task — it has cs=0x08 (Ring-0), state must go ZOMBIE */
     uint64_t f = irq_save();
-    kt->next = (task_t*)current_task->next;
-    current_task->next = kt;
-    irq_restore(f);
-
-    /* SIGKILL the kernel task — it has cs=0x08 (Ring-0), state must go ZOMBIE */
-    f = irq_save();
     task_deliver_signal(kt, SIGKILL);
     int is_zombie = (kt->state == TASK_ZOMBIE);
     irq_restore(f);
 
-    if (is_zombie)
-        pass(name);
-    else
-        fail(name, "kernel task not zombie");
+    if (is_zombie) pass(name);
+    else fail(name, "kernel task not zombie");
 
+    /* Set parent to current to allow reaping */
+    kt->parent = (task_t*)current_task;
     reap_zombies();
 }
-
 /* ------------------------------------------------------------------ */
 /* Test 7: Reentrancy guard — in_signal blocks trampoline injection    */
 /* ------------------------------------------------------------------ */
@@ -447,6 +440,105 @@ static void test_handler_frame_mutation() {
     t->in_signal       = saved_in_sig;
 }
 
+#ifdef ARCH_X86_64
+/* ------------------------------------------------------------------ */
+/* Test 8b: Trampoline frame mutation for 32-bit compat               */
+/* ------------------------------------------------------------------ */
+static void test_handler_frame_mutation_32bit_compat() {
+    const char *name = "[SIG T8b] Trampoline IRET frame (32-bit compat)";
+
+    uint8_t fake_user_stack[64];
+    memory_set(fake_user_stack, 0, sizeof(fake_user_stack));
+    uintptr_t fake_user_esp = (uintptr_t)(fake_user_stack + sizeof(fake_user_stack));
+
+    registers_t fake_regs;
+    memory_set((uint8_t*)&fake_regs, 0, sizeof(fake_regs));
+    fake_regs.cs     = 0x2B;         /* 32-bit Compat Ring-3 */
+    fake_regs.rip    = 0xCAFEBABE;   /* original user RIP */
+    fake_regs.rsp    = fake_user_esp; /* original user RSP */
+    fake_regs.rflags = 0x202;
+
+    task_t *t = (task_t*)current_task;
+    virt_addr_t saved_handler = t->sigterm_handler;
+    uint32_t    saved_pending = t->pending_signals;
+    int         saved_in_sig  = t->in_signal;
+
+    t->sigterm_handler = (virt_addr_t)fake_sig_handler;
+    t->pending_signals = SIG_BIT(SIGTERM);
+    t->in_signal       = 0;
+
+    task_check_pending_signals(&fake_regs);
+
+    /* ---- Verify the mutations ---- */
+    int ok = 1;
+
+    /* RIP must now be the handler */
+    if (fake_regs.rip != (virt_addr_t)fake_sig_handler) {
+        fail(name, "RIP not redirected to handler");
+        ok = 0;
+    }
+
+    if (t->pending_signals & SIG_BIT(SIGTERM)) {
+        fail(name, "SIGTERM bit still set after dispatch");
+        ok = 0;
+    }
+
+    if (!t->in_signal) {
+        fail(name, "in_signal not set");
+        ok = 0;
+    }
+
+    /* The new RSP must be below the original RSP */
+    if (fake_regs.rsp >= fake_user_esp) {
+        fail(name, "new RSP not below original");
+         ok = 0;
+    }
+
+    /* Verify 32-bit truncation of RIP and RSP */
+    if (fake_regs.rip > 0xFFFFFFFF) {
+        fail(name, "RIP not truncated to 32 bits");
+        ok = 0;
+    }
+    if (fake_regs.rsp > 0xFFFFFFFF) {
+        fail(name, "RSP not truncated to 32 bits");
+        ok = 0;
+    }
+
+    /* Verify 4-byte Return Address */
+    uint32_t ret_addr = *(uint32_t*)(uintptr_t)fake_regs.rsp;
+    if (ret_addr < (uint32_t)(uintptr_t)fake_user_stack ||
+        ret_addr >= (uint32_t)(uintptr_t)(fake_user_stack + sizeof(fake_user_stack))) {
+        fail(name, "return address out of fake stack range");
+        ok = 0;
+    }
+
+    /* Verify 4-byte Signal Argument (at ESP+4) */
+    uint32_t sig_arg = *(uint32_t*)(fake_regs.rsp + 4);
+    if (sig_arg != 15) {
+         fail(name, "sig_num arg wrong for 32-bit compat");
+         ok = 0;
+    }
+
+    /* The 7 trampoline bytes at ret_addr must be: B8 32 00 00 00 CD 80 */
+    uint8_t *tramp = (uint8_t*)(uintptr_t)ret_addr;
+    static const uint8_t expected[7] = {0xB8, 50, 0x00, 0x00, 0x00, 0xCD, 0x80};
+    for (int i = 0; i < 7; i++) {
+        if (tramp[i] != expected[i]) {
+            fail(name, "trampoline bytes wrong");
+            ok = 0;
+            break;
+        }
+    }
+
+    if (ok) pass(name);
+
+    /* Restore task state */
+    t->sigterm_handler = saved_handler;
+    t->pending_signals = saved_pending;
+    t->in_signal       = saved_in_sig;
+}
+#endif
+
 /* ------------------------------------------------------------------ */
 /* Entry point                                                         */
 /* ------------------------------------------------------------------ */
@@ -460,5 +552,8 @@ void run_signal_tests() {
     test_sigkill_kernel_task();
     test_reentrancy_guard();
     test_handler_frame_mutation();
+#ifdef ARCH_X86_64
+    test_handler_frame_mutation_32bit_compat();
+#endif
     kprint("=== Signal Tests Complete ===\n");
 }

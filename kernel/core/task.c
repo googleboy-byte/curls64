@@ -1110,20 +1110,44 @@ void task_check_pending_signals(registers_t *regs) {
     for (int i = 0; i < 7; i++) tp[i] = trampoline_code[i];
     virt_addr_t trampoline_ptr = u;
 
-    /* Align to 8-byte boundary */
-    u &= ~(virt_addr_t)7;
+#ifdef ARCH_X86_64
+    int is_32bit = ((regs->cs & 0xFFFF) == 0x2B);
+#else
+    int is_32bit = 1;
+#endif
 
-    /* Push signal number (argument 1, accessible at RSP+8 in handler) */
-    u -= 8;
-    *(uint64_t*)u = (uint64_t)sig;
+    if (is_32bit) {
+        /* Align to 4-byte boundary */
+        u &= ~(virt_addr_t)3;
 
-    /* Push return address (points to trampoline, accessible at RSP+0) */
-    u -= 8;
-    *(uint64_t*)u = (uint64_t)trampoline_ptr;
+        /* Push signal number (argument 1, accessible at ESP+4 in handler) */
+        u -= 4;
+        *(uint32_t*)u = (uint32_t)sig;
+
+        /* Push return address (points to trampoline, accessible at ESP+0) */
+        u -= 4;
+        *(uint32_t*)u = (uint32_t)trampoline_ptr;
+    } else {
+        /* Align to 8-byte boundary */
+        u &= ~(virt_addr_t)7;
+
+        /* Push signal number (argument 1, accessible at RSP+8 in handler) */
+        u -= 8;
+        *(uint64_t*)u = (uint64_t)sig;
+
+        /* Push return address (points to trampoline, accessible at RSP+0) */
+        u -= 8;
+        *(uint64_t*)u = (uint64_t)trampoline_ptr;
+    }
 
     /* ---- Redirect IRET frame to handler ---- */
-    regs->rip = t->sigterm_handler;
-    regs->rsp = u;
+    if (is_32bit) {
+        regs->rip = (uint32_t)t->sigterm_handler;
+        regs->rsp = (uint32_t)u;
+    } else {
+        regs->rip = t->sigterm_handler;
+        regs->rsp = u;
+    }
 
     /* Mark task as inside signal handler (reentrancy guard) */
     t->in_signal = 1;
