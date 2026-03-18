@@ -89,6 +89,9 @@ typedef struct {
 } registers_t;
 #else
 typedef struct {
+   /* Segment registers (for 32-bit compatibility mode) */
+   /* Order must match interrupt64.asm pops: pop gs, pop fs, pop es, pop ds */
+   uint64_t gs, fs, es, ds;
    /* Pushed by interrupt64.asm in order: rax, rbx, rcx, rdx, rsi, rdi, rbp, r8..r15
     * Stack grows down, so r15 (last pushed) is at lowest address.
     * Struct reads from lowest address upward: */

@@ -15,6 +15,11 @@ pipe_t* pipe_create(uint32_t size) {
     memory_set((uint8_t*)p, 0, sizeof(pipe_t));
     
     p->size = size;
+    {
+        char s[20];
+        kprint("[PIPE] Created at 0x"); hex64_to_ascii((uint64_t)p, s); kprint(s);
+        kprint(" size="); int_to_ascii(p->size, s); kprint(s); kprint("\n");
+    }
     p->buffer = (uint8_t*)kmalloc(p->size, 0, 0);
     if (!p->buffer) { kfree(p); return 0; }
     
@@ -94,6 +99,13 @@ uint32_t pipe_write(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *bu
 
     // EPIPE condition: no readers
     if (p->readers == 0) return (uint32_t)-1;
+
+    if (p->size == 0) {
+        char s[20];
+        kprint("[PIPE] !!! CRITICAL: pipe_write called with size=0! p=0x");
+        hex64_to_ascii((uint64_t)p, s); kprint(s); kprint("\n");
+        panic("PIPE SIZE ZERO");
+    }
 
     uint32_t written_bytes = 0;
     while (written_bytes < size && p->len < p->size) {

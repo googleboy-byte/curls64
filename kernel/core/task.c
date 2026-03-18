@@ -284,6 +284,12 @@ task_t *create_kernel_task(void (*entry)(void)){
     *(--stack) = 0; // r13
     *(--stack) = 0; // r14
     *(--stack) = 0; // r15  <- last pushed by asm = top of saved frame
+    
+    // matches interrupt64.asm pop gs, pop fs, pop es, pop ds
+    *(--stack) = 0x10; // ds
+    *(--stack) = 0x10; // es
+    *(--stack) = 0x10; // fs
+    *(--stack) = 0x10; // gs
 
     new_task->user_esp = (virt_addr_t)stack;
     
@@ -305,19 +311,20 @@ int sys_fork(registers_t *regs) {
     
     KTRACE0(KTRACE_TASK_CREATE);
     page_directory_t *directory = clone_page_directory(parent->page_directory);
+    
+    // CRITICAL FIX: clone_page_directory marked the user-space page tables as 
+    // MMU_COW and cleared MMU_WRITABLE. However, the executing parent process
+    // still has the WRITABLE entries cached in its TLB. We MUST flush the TLB 
+    // now so that when the parent returns to user-space, its first stack write
+    // triggers a COW fault. Otherwise, it will write directly to the shared 
+    // physical page, corrupting the child's identical stack frame.
+    mmu_switch((mmu_context_t *)parent->page_directory);
 
     // Phase 2: Create new task structure
     
     // adding a task limit here for forks even though
     // right now we can only afford 24 heh
     // since we alloc a kernel stack per task
-    if (kabi_debug_enabled()) {
-        char s[20];
-        kprint("[FORK] Parent PID: "); int_to_ascii(parent->id, s); kprint(s);
-        kprint(" RIP: 0x"); hex64_to_ascii(regs->rip, s); kprint(s);
-        kprint(" CS: 0x"); hex_to_ascii((uint32_t)regs->cs, s); kprint(s);
-        kprint("\n");
-    }
 
     if (next_pid > MAX_TASKS) {
         kprint("[SCHED] fork: MAX_TASKS reached\n");
@@ -341,12 +348,6 @@ int sys_fork(registers_t *regs) {
     phys_addr_t phys;
     virt_addr_t base = (virt_addr_t)kmalloc(0x4000, 1, &phys);
     if (!base) panic("sys_fork: Out of memory for kernel stack");
-    
-    if (kabi_debug_enabled()) {
-        char s[20];
-        kprint("\n[FORK] Child kstack base=0x"); hex64_to_ascii(base, s); kprint(s);
-        kprint(" phys=0x"); hex64_to_ascii(phys, s); kprint(s); kprint("\n");
-    }
     
     // Poison stack for overflow detection
     memory_set((uint8_t*)base, 0xCC, 0x4000);
@@ -373,7 +374,7 @@ int sys_fork(registers_t *regs) {
 
     // PHASE 4: Fix child register state
     int64_t stack_shift = (int64_t)child->kernel_stack - (int64_t)src_stack_top;
-    child->user_esp = child->kernel_stack - stack_used;
+    child->user_esp = (virt_addr_t)(child->kernel_stack - stack_used);
 
     registers_t *child_regs = (registers_t*)child->user_esp;
     child_regs->rax = 0;             // Child returns 0
@@ -581,13 +582,13 @@ int spawn_process(virt_addr_t entry_point, virt_addr_t user_stack) {
     *(--stack) = 0;                 // Error code
     *(--stack) = 0;                 // Interrupt number
     
-    // push registers (rax, rbx, rcx, rdx, rsi, rdi, rbp, r8-r15)
+    // push general purpose registers (matches registers_t and interrupt64.asm)
     *(--stack) = 0; // rax
     *(--stack) = 0; // rbx
     *(--stack) = 0; // rcx
     *(--stack) = 0; // rdx
-    *(--stack) = 0; // rdi
     *(--stack) = 0; // rsi
+    *(--stack) = 0; // rdi
     *(--stack) = 0; // rbp
     *(--stack) = 0; // r8
     *(--stack) = 0; // r9
@@ -597,6 +598,12 @@ int spawn_process(virt_addr_t entry_point, virt_addr_t user_stack) {
     *(--stack) = 0; // r13
     *(--stack) = 0; // r14
     *(--stack) = 0; // r15
+    
+    // Segment registers (matches interrupt64.asm pop gs, pop fs, pop rax=es, pop rax=ds)
+    *(--stack) = 0x23; // ds
+    *(--stack) = 0x23; // es
+    *(--stack) = 0x23; // fs
+    *(--stack) = 0x23; // gs
     
     // The task's ESP points to the top of this fake frame
     new_task->user_esp = (virt_addr_t)stack;
@@ -948,6 +955,12 @@ void task_switch(registers_t *regs) {
         kprint(" RESTORE="); hex64_to_ascii(current_task->user_esp,  s); kprint(s);
         kprint(" RIP="); hex64_to_ascii(current_task->user_eip, rip_s); kprint(rip_s);
         kprint(" CS="); int_to_ascii(current_task->page_directory ? 0x1B : 0x08, s); kprint(s);
+        kprint("\n");
+        // Dump the actual rax at the RESTORE pointer
+        registers_t *dump_regs = (registers_t*)current_task->user_esp;
+        kprint("  [DUMP] rax="); hex64_to_ascii(dump_regs->rax, s); kprint(s);
+        kprint(" rip="); hex64_to_ascii(dump_regs->rip, s); kprint(s);
+        kprint(" cs="); hex64_to_ascii(dump_regs->cs, s); kprint(s);
         kprint("\n");
     }
 

@@ -1,5 +1,6 @@
 #include "mem.h"
 #include "../kernel/cpu/paging.h"
+#include "../kernel/core/kernel.h"
 
 void memory_copy(uint8_t *source, uint8_t *dest, size_t nbytes) {
     int i;
@@ -34,26 +35,29 @@ heap_t *kheap = 0;
 
 uint64_t kmalloc_int(size_t size, int align, phys_addr_t *phys_addr) {
     uintptr_t f = irq_save();
+    
+    if (pmm_is_ready) {
+        if (size > 0x1000) panic("kmalloc_int: size > 4K requested after PMM ready");
+        uint32_t frame = pmm_first_free();
+        if (frame == (uint32_t)-1) panic("kmalloc_int: out of physical memory");
+        pmm_set_frame(frame);
+        uintptr_t ret = (uintptr_t)frame * 0x1000;
+        if (phys_addr) *phys_addr = ret;
+        irq_restore(f);
+        return (uint64_t)ret;
+    }
+
     /* Pages are aligned to 4K, or 0x1000 */
     if (align == 1 && (free_mem_addr & 0xFFF)) {
         free_mem_addr &= ~0xFFFULL;
         free_mem_addr += 0x1000;
     }
-    // kprint("  - [KMem] Early alloc size: ");
-    // char sa[20]; hex64_to_ascii(size, sa); kprint(sa); kprint(" at ");
-    // hex64_to_ascii(free_mem_addr, sa); kprint(sa); kprint("\n");
+    
     /* Save also the physical address */
     if (phys_addr) *phys_addr = (phys_addr_t)free_mem_addr;
 
     uintptr_t ret = free_mem_addr;
     free_mem_addr += size; /* Remember to increment the pointer */
-
-    if (pmm_is_ready) {
-        // Reserve frames in PMM. In this kernel, virt == phys for early allocations.
-        for (uintptr_t addr = ret & ~0xFFFULL; addr < (free_mem_addr + 0xFFF) & ~0xFFFULL; addr += 0x1000) {
-            pmm_set_frame(addr / 0x1000);
-        }
-    }
 
     irq_restore(f);
     return (uint64_t)ret;

@@ -20,7 +20,7 @@ extern int elf_validate(void *image);
 extern int elf_load_image_from_buffer(uint8_t *image, size_t size, page_directory_t *pd, elf_load_result_t *out);
 int sys_execve(const char *path, char **argv, registers_t *regs);
 
-static virt_addr_t build_user_stack(page_directory_t *pd, char **argv, virt_addr_t stack_top, virt_addr_t stack_size) {
+static virt_addr_t build_user_stack(page_directory_t *pd, char **argv, virt_addr_t stack_top, virt_addr_t stack_size, int caller_is_32bit) {
     // 1. Map user stack pages
     for (virt_addr_t v = stack_top - stack_size; v < stack_top; v += 0x1000) {
         page_t *page = get_page(v, 1, pd);
@@ -45,7 +45,16 @@ static virt_addr_t build_user_stack(page_directory_t *pd, char **argv, virt_addr
 
     uint32_t argc = 0;
     if (argv) {
-        while (argv[argc]) argc++;
+#ifdef ARCH_X86_64
+        if (caller_is_32bit) {
+            uint32_t *argv32 = (uint32_t*)argv;
+            while (argv32[argc]) argc++;
+        } else {
+#endif
+            while (argv[argc]) argc++;
+#ifdef ARCH_X86_64
+        }
+#endif
     }
 
     virt_addr_t sp = stack_top;
@@ -54,12 +63,18 @@ static virt_addr_t build_user_stack(page_directory_t *pd, char **argv, virt_addr
 
     // Copy argument strings
     for (int i = (int)argc - 1; i >= 0; i--) {
-        size_t len = strlen(argv[i]) + 1;
+        char *arg_str = argv[i];
+#ifdef ARCH_X86_64
+        if (caller_is_32bit) {
+            arg_str = (char*)(uintptr_t)(((uint32_t*)argv)[i]);
+        }
+#endif
+        size_t len = strlen(arg_str) + 1;
         sp -= len;
         
         virt_addr_t v_addr = sp;
         size_t bytes_to_copy = len;
-        uint8_t *src_ptr = (uint8_t*)argv[i];
+        uint8_t *src_ptr = (uint8_t*)arg_str;
         
         while (bytes_to_copy > 0) {
             uintptr_t off = v_addr % 0x1000;
@@ -247,7 +262,13 @@ int sys_execve(const char *path, char **argv, registers_t *regs) {
         elf_stack_size = 0x8000; // 32KB for 64-bit
     }
 
-    virt_addr_t new_sp = build_user_stack(new_pd, argv, elf_stack_top, elf_stack_size);
+#ifdef ARCH_X86_64
+    int caller_is_32bit = ((regs->cs & 0xFFFF) == 0x2B);
+#else
+    int caller_is_32bit = 1;
+#endif
+
+    virt_addr_t new_sp = build_user_stack(new_pd, argv, elf_stack_top, elf_stack_size, caller_is_32bit);
     if (!new_sp) {
         free_page_directory(new_pd);
         return -KABI_ENOMEM;
@@ -314,11 +335,19 @@ int sys_execve(const char *path, char **argv, registers_t *regs) {
     // Selectors for 64-bit User Mode
     regs->cs = 0x1B;
     regs->ss = 0x23;
+    regs->ds = 0x23;
+    regs->es = 0x23;
+    regs->fs = 0x23;
+    regs->gs = 0x23;
 
     // If this is a 32-bit ELF, use compat mode selectors
     if (is_elf32) {
         regs->cs = 0x2B; // GDT_USER_CS32 | RPL=3
         regs->ss = 0x33; // GDT_USER_DS32 | RPL=3
+        regs->ds = 0x33;
+        regs->es = 0x33;
+        regs->fs = 0x33;
+        regs->gs = 0x33;
     }
 #else
     regs->eip = res.entry;

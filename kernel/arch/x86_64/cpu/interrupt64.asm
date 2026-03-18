@@ -45,6 +45,14 @@ isr_common_stub:
     push r14
     push r15
 
+    ; 2. Save segment registers (lower 16-bits are useful)
+    mov rax, ds
+    push rax
+    mov rax, es
+    push rax
+    push fs
+    push gs
+
     mov rdi, rsp ; registers_t *r
     cld
     call isr_handler
@@ -58,6 +66,13 @@ isr_common_stub:
     mov rsp, rax
 
 .no_switch:
+    pop gs
+    pop fs
+    pop rax
+    mov es, ax
+    pop rax
+    mov ds, ax
+
     pop r15
     pop r14
     pop r13
@@ -95,6 +110,14 @@ irq_common_stub:
     push r14
     push r15
 
+    ; Save segments for IRQ too
+    mov rax, ds
+    push rax
+    mov rax, es
+    push rax
+    push fs
+    push gs
+
     mov rdi, rsp
     cld
     call irq_handler
@@ -107,6 +130,13 @@ irq_common_stub:
     mov rsp, rax
 
 .irq_no_switch:
+    pop gs
+    pop fs
+    pop rax
+    mov es, ax
+    pop rax
+    mov ds, ax
+
     pop r15
     pop r14
     pop r13

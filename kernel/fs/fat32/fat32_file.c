@@ -4,14 +4,16 @@
 #include "../../../libc/mem.h"
 
 /**
- * Internal: Simple memcmp implementation.
+ * Internal: Case-insensitive filename comparison.
  */
-static int fat32_memcmp(const void *s1, const void *s2, uint32_t n) {
-    const uint8_t *p1 = (const uint8_t *)s1;
-    const uint8_t *p2 = (const uint8_t *)s2;
+static int fat32_filename_cmp(const uint8_t *s1, const uint8_t *s2, uint32_t n) {
     for (uint32_t i = 0; i < n; i++) {
-        if (p1[i] < p2[i]) return -1;
-        if (p1[i] > p2[i]) return 1;
+        uint8_t c1 = s1[i];
+        uint8_t c2 = s2[i];
+        if (c1 >= 'a' && c1 <= 'z') c1 -= 32;
+        if (c2 >= 'a' && c2 <= 'z') c2 -= 32;
+        if (c1 < c2) return -1;
+        if (c1 > c2) return 1;
     }
     return 0;
 }
@@ -75,7 +77,7 @@ int fat32_find_file(uint32_t dev,
                 if (entries[i].name[0] == 0xE5) continue;
                 if (entries[i].attr == FAT_ATTR_LFN) continue;
 
-                if (fat32_memcmp(entries[i].name, target_name, 11) == 0) {
+                if (fat32_filename_cmp(entries[i].name, target_name, 11) == 0) {
                     memory_copy((uint8_t *)&entries[i], (uint8_t *)out_dirent, sizeof(fat32_dirent_t));
                     return KABI_SUCCESS;
                 }
@@ -219,7 +221,7 @@ int fat32_update_dirent(uint32_t dev,
                 if (entries[i].name[0] == 0xE5) continue;
                 if (entries[i].attr == FAT_ATTR_LFN) continue;
 
-                if (fat32_memcmp(entries[i].name, target_name, 11) == 0) {
+                if (fat32_filename_cmp(entries[i].name, target_name, 11) == 0) {
                     if (new_size != 0xFFFFFFFF) entries[i].size = new_size;
                     if (new_cluster != 0xFFFFFFFF) {
                         entries[i].cluster_hi = (uint16_t)(new_cluster >> 16);

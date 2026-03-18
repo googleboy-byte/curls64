@@ -196,8 +196,10 @@ void init_paging() {
     kprint("  - Mapping Kernel Heap to ");
     hex64_to_ascii(KHEAP_START, s); kprint(s); kprint("\n");
     for (uint64_t i = KHEAP_START; i < KHEAP_START + KHEAP_INITIAL_SIZE; i += 0x1000) {
-        phys_addr_t phys;
-        kmalloc_int(0x1000, 1, &phys);
+        uint32_t frame = pmm_first_free();
+        if (frame == (uint32_t)-1) panic("init_paging: out of physical memory for kheap");
+        pmm_set_frame(frame);
+        phys_addr_t phys = (phys_addr_t)frame * 0x1000;
         mmu_map_page(kernel_directory, i, phys, MMU_WRITABLE);
     }
 
