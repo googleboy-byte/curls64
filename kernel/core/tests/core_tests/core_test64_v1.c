@@ -63,21 +63,21 @@ static int check_kernel_cow_64() {
         if (!(pml4e & MMU_PRESENT)) continue;
         if (pml4e & MMU_COW) return 0;
 
-        mmu_table_t *pdpt = (mmu_table_t*)((uintptr_t)PHYSMAP_BASE + (pml4e & ~0xFFFULL));
+        mmu_table_t *pdpt = (mmu_table_t*)((uintptr_t)PHYSMAP_BASE + (pml4e & 0x000000FFFFFFF000ULL));
         for (int j = 0; j < 512; j++) {
             uint64_t pdpte = pdpt->entries[j];
             if (!(pdpte & MMU_PRESENT)) continue;
             if (pdpte & MMU_COW) return 0;
             if (pdpte & MMU_HUGE) continue; // Skip 1GB large pages
 
-            mmu_table_t *pd = (mmu_table_t*)((uintptr_t)PHYSMAP_BASE + (pdpte & ~0xFFFULL));
+            mmu_table_t *pd = (mmu_table_t*)((uintptr_t)PHYSMAP_BASE + (pdpte & 0x000000FFFFFFF000ULL));
             for (int k = 0; k < 512; k++) {
                 uint64_t pde = pd->entries[k];
                 if (!(pde & MMU_PRESENT)) continue;
                 if (pde & MMU_COW) return 0;
                 if (pde & MMU_HUGE) continue; // Skip 2MB large pages
 
-                mmu_table_t *pt = (mmu_table_t*)((uintptr_t)PHYSMAP_BASE + (pde & ~0xFFFULL));
+                mmu_table_t *pt = (mmu_table_t*)((uintptr_t)PHYSMAP_BASE + (pde & 0x000000FFFFFFF000ULL));
                 for (int l = 0; l < 512; l++) {
                     uint64_t pte = pt->entries[l];
                     if ((pte & MMU_PRESENT) && (pte & MMU_COW)) return 0;

@@ -480,6 +480,7 @@ user/nano/nano.o: user/nano/nano.c
 clean:
 	rm -rf $(BUILD_DIR) $(LOG_DIR)
 	find . \( -name "*.o" -o -name "*.o64" \) -delete
+	find . \( -name "*.map" -o -name "*.E" -o -name "*.S" \) -delete
 	find . -name "*.elf" -not -path "./.git/*" -delete
 	rm -f kernel/modules/fs_initrd/initrd.bin
 	rm -f kernel/modules/fs_initrd/initrd_data.c

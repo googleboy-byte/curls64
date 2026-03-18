@@ -1,0 +1,29 @@
+# Build artifacts
+*.o
+*.o64
+*.elf
+*.bin
+*.iso
+*.img
+*.map
+
+# Preprocessor and assembly outputs
+*.E
+*.S
+
+# Build directories
+build/
+logs/
+initrd/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Editor and temporary files
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+tmp*/

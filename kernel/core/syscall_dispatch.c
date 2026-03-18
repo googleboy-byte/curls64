@@ -82,11 +82,22 @@ static void syscall_handler(registers_t *regs) {
         UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
         UABI_VALIDATE_POSITIVE(REGS_ARG3(regs), syscall_num);
         REGS_SYSNO(regs) = read(REGS_ARG1(regs), (char *)REGS_ARG2(regs), REGS_ARG3(regs));
+        if (kabi_debug_enabled() && REGS_ARG1(regs) == 0 && REGS_SYSNO(regs) > 0) {
+            char s[16]; hex_to_ascii(current_task->id, s);
+            kprint("[READ] PID 0x"); kprint(s);
+            kprint(" FD0 size="); int_to_ascii(REGS_SYSNO(regs), s); kprint(s);
+            kprint(" data="); kprint((char *)REGS_ARG2(regs)); kprint("\n");
+        }
         UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == 22) { /* UABI_WRITE */
         UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
         UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
         UABI_VALIDATE_POSITIVE(REGS_ARG3(regs), syscall_num);
+        if (kabi_debug_enabled() && REGS_ARG1(regs) == 1) {
+            char s[16]; hex_to_ascii(current_task->id, s);
+            kprint("[WRITE] PID 0x"); kprint(s);
+            kprint(" FD1 size="); int_to_ascii(REGS_ARG3(regs), s); kprint(s); kprint("\n");
+        }
         REGS_SYSNO(regs) = write(REGS_ARG1(regs), (char *)REGS_ARG2(regs), REGS_ARG3(regs));
         UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == 23) { /* UABI_CLOSE */
@@ -109,6 +120,9 @@ static void syscall_handler(registers_t *regs) {
         UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
         UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
         REGS_SYSNO(regs) = sys_stat((const char *)REGS_ARG1(regs), (void *)REGS_ARG2(regs));
+        if (kabi_debug_enabled() && REGS_SYSNO(regs) != 0) {
+             kprint("[STAT] fail path="); kprint((const char *)REGS_ARG1(regs)); kprint("\n");
+        }
     } else if (syscall_num == 28) { /* UABI_LSEEK */
         UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
         UABI_VALIDATE_RANGE(REGS_ARG3(regs), 0, 2, syscall_num);
@@ -117,6 +131,11 @@ static void syscall_handler(registers_t *regs) {
         REGS_SYSNO(regs) = sys_fork(regs);
     } else if (syscall_num == 31) { /* UABI_EXEC */
         UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        if (kabi_debug_enabled()) {
+            char s[16]; hex_to_ascii(current_task->id, s);
+            kprint("[EXEC] PID 0x"); kprint(s);
+            kprint(" path="); kprint((const char *)REGS_ARG1(regs)); kprint("\n");
+        }
         REGS_SYSNO(regs) = sys_execve((const char *)REGS_ARG1(regs), (char **)REGS_ARG2(regs), regs);
     } else if (syscall_num == 32) { /* UABI_EXIT */
         current_task->exit_code = (int)REGS_ARG1(regs);
@@ -160,6 +179,14 @@ static void syscall_handler(registers_t *regs) {
     } else if (syscall_num == 43) { /* UABI_GETC */
         extern int sys_getchar(void);
         REGS_SYSNO(regs) = sys_getchar();
+        if (kabi_debug_enabled()) {
+            char s[16];
+            kprint("[GETC] char='"); 
+            char buf[2] = {(char)REGS_SYSNO(regs), 0};
+            if (buf[0] >= 32 && buf[0] <= 126) kprint(buf);
+            else { kprint("0x"); hex_to_ascii((uint32_t)REGS_SYSNO(regs), s); kprint(s); }
+            kprint("'\n");
+        }
     } else if (syscall_num == 44) { /* UABI_GOTOXY */
         extern void set_cursor_position(int col, int row);
         UABI_VALIDATE_RANGE(REGS_ARG1(regs), 0, 79, syscall_num);

@@ -30,13 +30,29 @@ static inline void* phys_to_virt(phys_addr_t phys) {
     return (void*)((uintptr_t)PHYSMAP_BASE + (uintptr_t)phys);
 }
 
+static mmu_table_t* alloc_table(phys_addr_t *out_phys) {
+    uint32_t frame = pmm_first_free();
+    if (frame == (uint32_t)-1) panic("mmu: out of physical memory for page table");
+    pmm_set_frame(frame);
+    phys_addr_t phys = (phys_addr_t)frame * 0x1000;
+    if (out_phys) *out_phys = phys;
+    mmu_table_t *table = (mmu_table_t*)phys_to_virt(phys);
+    memory_set((uint8_t*)table, 0, sizeof(mmu_table_t));
+    return table;
+}
+
+static void free_page_table(mmu_table_t *table) {
+    if (!table) return;
+    uint64_t phys = (uintptr_t)table - PHYSMAP_BASE;
+    frame_remove_ref((uint32_t)(phys / 0x1000));
+}
+
 static mmu_table_t* get_or_alloc_table(mmu_table_t *parent, int index, uint64_t flags) {
     if (!(parent->entries[index] & MMU_PRESENT)) {
         phys_addr_t phys;
-        mmu_table_t *new_table = (mmu_table_t*)kmalloc(sizeof(mmu_table_t), 1, &phys);
+        mmu_table_t *new_table = alloc_table(&phys);
         if (!new_table) return NULL;
         
-        memory_set((uint8_t*)new_table, 0, sizeof(mmu_table_t));
         // Tables are always Present|Writable|User at the directory level to allow restricted leaf entries
         parent->entries[index] = phys | MMU_PRESENT | MMU_WRITABLE | MMU_USER;
         return new_table;
@@ -103,10 +119,9 @@ void mmu_switch(mmu_context_t *ctx) {
 
 static mmu_table_t* clone_table(mmu_table_t *src, uint64_t *physAddr, int level, int cow_enabled) {
     phys_addr_t phys;
-    mmu_table_t *table = (mmu_table_t*)kmalloc(sizeof(mmu_table_t), 1, &phys);
+    mmu_table_t *table = alloc_table(&phys);
     if (!table) return NULL;
     *physAddr = phys;
-    memory_set((uint8_t*)table, 0, sizeof(mmu_table_t));
 
     for (int i = 0; i < 512; i++) {
         if (!(src->entries[i] & MMU_PRESENT)) continue;
@@ -150,14 +165,13 @@ static void free_table(mmu_table_t *table, int level) {
             frame_remove_ref((uint32_t)frame);
         }
     }
-    kfree(table);
+    free_page_table(table);
 }
 
 mmu_context_t *mmu_clone_user(mmu_context_t *src) {
     phys_addr_t phys;
-    mmu_table_t *new_pml4 = (mmu_table_t*)kmalloc(sizeof(mmu_table_t), 1, &phys);
+    mmu_table_t *new_pml4 = alloc_table(&phys);
     if (!new_pml4) return NULL;
-    memory_set((uint8_t*)new_pml4, 0, sizeof(mmu_table_t));
 
     mmu_context_t *ctx = (mmu_context_t*)kmalloc(sizeof(mmu_context_t), 0, NULL);
     ctx->pml4_phys = phys;
@@ -166,17 +180,54 @@ mmu_context_t *mmu_clone_user(mmu_context_t *src) {
     for (int i = 0; i < 512; i++) {
         if (!(src->pml4_virt->entries[i] & MMU_PRESENT)) continue;
 
-        // If it's a kernel range (higher-half or identity low), just share it.
-        // Index 0 holds the identity-mapped low 64MB (kernel memory) and must
-        // NOT be COW-cloned — otherwise freeing the child directory will
-        // decrement refcounts on kernel-critical frames.
-        if (i >= 256 || i == 0) {
+        if (i >= 256) {
+            // Kernel higher-half: share directly
             new_pml4->entries[i] = src->pml4_virt->entries[i];
+        } else if (i == 0) {
+            // PML4[0] contains both the kernel identity map (0-128MB) AND user space.
+            // We must surgically share the kernel part and COW-clone the user part.
+            uint64_t pdpt_phys;
+            mmu_table_t *src_pdpt = (mmu_table_t*)phys_to_virt(src->pml4_virt->entries[0] & ~0xFFFULL);
+            mmu_table_t *new_pdpt = alloc_table((phys_addr_t*)&pdpt_phys);
+
+            for (int j = 0; j < 512; j++) {
+                if (!(src_pdpt->entries[j] & MMU_PRESENT)) continue;
+
+                if (j == 0) {
+                    // PDPT[0] contains PDs.
+                    // PD indices 0-63 cover 0MB to 128MB (kernel identity map).
+                    // PD indices 64-511 cover user space.
+                    uint64_t pd_phys;
+                    mmu_table_t *src_pd = (mmu_table_t*)phys_to_virt(src_pdpt->entries[0] & ~0xFFFULL);
+                    mmu_table_t *new_pd = alloc_table((phys_addr_t*)&pd_phys);
+
+                    for (int k = 0; k < 512; k++) {
+                        if (!(src_pd->entries[k] & MMU_PRESENT)) continue;
+                        if (k < 64) {
+                            // Kernel identity map: share directly
+                            new_pd->entries[k] = src_pd->entries[k];
+                        } else {
+                            // User space: COW clone
+                            uint64_t pt_phys;
+                            mmu_table_t *src_pt = (mmu_table_t*)phys_to_virt(src_pd->entries[k] & ~0xFFFULL);
+                            mmu_table_t *new_pt = clone_table(src_pt, &pt_phys, 3, 1);
+                            new_pd->entries[k] = pt_phys | (src_pd->entries[k] & 0xFFF);
+                        }
+                    }
+                    new_pdpt->entries[0] = pd_phys | (src_pdpt->entries[0] & 0xFFF);
+                } else {
+                    // Other PDPT entries in PML4[0] are user space: COW clone
+                    uint64_t pd_phys;
+                    mmu_table_t *src_pd = (mmu_table_t*)phys_to_virt(src_pdpt->entries[j] & ~0xFFFULL);
+                    mmu_table_t *new_pd = clone_table(src_pd, &pd_phys, 2, 1);
+                    new_pdpt->entries[j] = pd_phys | (src_pdpt->entries[j] & 0xFFF);
+                }
+            }
+            new_pml4->entries[0] = pdpt_phys | (src->pml4_virt->entries[0] & 0xFFF);
         } else {
-            // Clone user PDPT
+            // Other user PML4 entries (1-255): COW clone user PDPT
             uint64_t pdpt_phys;
             mmu_table_t *src_pdpt = (mmu_table_t*)phys_to_virt(src->pml4_virt->entries[i] & ~0xFFFULL);
-            // level 1 = PDPT
             mmu_table_t *new_pdpt = clone_table(src_pdpt, &pdpt_phys, 1, 1);
             new_pml4->entries[i] = pdpt_phys | (src->pml4_virt->entries[i] & 0xFFF);
         }
@@ -232,6 +283,7 @@ page_t *get_page(virt_addr_t address, int make, page_directory_t *dir) {
 }
 
 void switch_page_directory(page_directory_t *dir) {
+    current_directory = dir;
     mmu_switch(dir);
 }
 
@@ -252,16 +304,44 @@ void free_page_directory(page_directory_t *dir) {
         return;
     }
 
-    // Only free user-space half of the tables.
-    // Skip index 0: identity-mapped low 64MB (shared kernel memory).
-    for (int i = 1; i < 256; i++) {
-        if (pml4->entries[i] & MMU_PRESENT) {
+    // Only free user-space half of the tables (0-255).
+    // Kernel higher-half (256-511) is shared and should not be freed.
+    for (int i = 0; i < 256; i++) {
+        if (!(pml4->entries[i] & MMU_PRESENT)) continue;
+
+        if (i == 0) {
+            // Surgically clean up PML4[0] (Identity map + User space)
+            mmu_table_t *pdpt = (mmu_table_t*)phys_to_virt(pml4->entries[0] & ~0xFFFULL);
+            for (int j = 0; j < 512; j++) {
+                if (!(pdpt->entries[j] & MMU_PRESENT)) continue;
+                
+                if (j == 0) {
+                    // PDPT[0] contains PDs.
+                    // PD indices 0-63 cover 0MB to 128MB (kernel identity map) and are shared.
+                    // PD indices 64-511 cover user space and were cloned.
+                    mmu_table_t *pd = (mmu_table_t*)phys_to_virt(pdpt->entries[0] & ~0xFFFULL);
+                    for (int k = 64; k < 512; k++) {
+                        if (pd->entries[k] & MMU_PRESENT) {
+                            mmu_table_t *pt = (mmu_table_t*)phys_to_virt(pd->entries[k] & ~0xFFFULL);
+                            free_table(pt, 3);
+                        }
+                    }
+                    free_page_table(pd);
+                } else {
+                    // Other PDPT entries in PML4[0] are entirely user space
+                    mmu_table_t *pd = (mmu_table_t*)phys_to_virt(pdpt->entries[j] & ~0xFFFULL);
+                    free_table(pd, 2);
+                }
+            }
+            free_page_table(pdpt);
+        } else {
+            // Other user PML4 entries (1-255)
             mmu_table_t *pdpt = (mmu_table_t*)phys_to_virt(pml4->entries[i] & ~0xFFFULL);
             free_table(pdpt, 1);
         }
     }
-
-    kfree(pml4);
+    free_page_table(pml4);
+    
     kfree(dir);
 }
 
