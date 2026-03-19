@@ -3,18 +3,24 @@
 
 #include "../cpu/isr.h"
 
-#define SYS_PRINT 0
-#define SYS_EXIT  1
-#define SYS_OPEN  2
-#define SYS_CLOSE 3
-#define SYS_READ  4
-#define SYS_WRITE 5
-#define SYS_SEEK  6
-#define SYS_DUP   7
-#define SYS_DUP2  8
-#define SYS_PIPE  9
-#define SYS_FORK  10
-#define SYS_EXECVE 11
+#ifdef ARCH_X86_64
+#include "../../include/uabi/uabi_v2.h"
+#else
+#include "../../include/uabi/uabi_v1.h"
+#endif
+
+#define SYS_PRINT UABI_PRINT
+#define SYS_EXIT  UABI_EXIT
+#define SYS_OPEN  UABI_OPEN
+#define SYS_CLOSE UABI_CLOSE
+#define SYS_READ  UABI_READ
+#define SYS_WRITE UABI_WRITE
+#define SYS_SEEK  UABI_LSEEK
+#define SYS_DUP   UABI_DUP
+#define SYS_DUP2  UABI_DUP2
+#define SYS_PIPE  UABI_PIPE
+#define SYS_FORK  UABI_FORK
+#define SYS_EXECVE UABI_EXEC
 
 void init_syscalls();
 

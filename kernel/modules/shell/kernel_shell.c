@@ -45,7 +45,7 @@ static int execute_elf(const char *path, int argc, char **argv) {
         __asm__ __volatile__ (
             "int $0x80"
             : "=a" (result)
-            : "a" (11), "b" (path), "c" (argv)
+            : "a" (31), "b" (path), "c" (argv)
         );
         
         // If we reach here, exec failed

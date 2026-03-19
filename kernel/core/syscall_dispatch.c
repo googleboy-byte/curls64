@@ -18,57 +18,11 @@ static void syscall_handler(registers_t *regs) {
     
     /* ── Legacy Syscalls (0–11) ────────────────────────────────── */
 
-    if (syscall_num == SYS_EXIT) {
-        kill(getpid());
-        schedule(regs);
-        // Should never reach here
-        kprint("EXIT FAILED! PID: ");
-        char s[10]; int_to_ascii(getpid(), s); kprint(s); kprint("\n");
+    if (syscall_num <= 11) {
+        kprint("PANIC: Stray call to legacy syscall range (0-11): ");
+        char s[10]; int_to_ascii(syscall_num, s); kprint(s); kprint("\n");
+        REGS_SYSNO(regs) = (uintptr_t)(-1);
         while(1) { asm volatile("sti; hlt"); }
-    } else if (syscall_num == SYS_PRINT) {
-        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
-        kprint((char *)REGS_ARG1(regs));
-    } else if (syscall_num == SYS_OPEN) {
-        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
-        REGS_SYSNO(regs) = open((char *)REGS_ARG1(regs), REGS_ARG2(regs));
-        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
-    } else if (syscall_num == SYS_CLOSE) {
-        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
-        REGS_SYSNO(regs) = close(REGS_ARG1(regs));
-    } else if (syscall_num == SYS_READ) {
-        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
-        UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
-        UABI_VALIDATE_POSITIVE(REGS_ARG3(regs), syscall_num);
-        REGS_SYSNO(regs) = read(REGS_ARG1(regs), (char *)REGS_ARG2(regs), REGS_ARG3(regs));
-        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
-    } else if (syscall_num == SYS_WRITE) {
-        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
-        UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
-        UABI_VALIDATE_POSITIVE(REGS_ARG3(regs), syscall_num);
-        REGS_SYSNO(regs) = write(REGS_ARG1(regs), (char *)REGS_ARG2(regs), REGS_ARG3(regs));
-        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
-    } else if (syscall_num == SYS_SEEK) {
-        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
-        UABI_VALIDATE_RANGE(REGS_ARG3(regs), 0, 2, syscall_num);
-        REGS_SYSNO(regs) = seek(REGS_ARG1(regs), REGS_ARG2(regs), REGS_ARG3(regs));
-    } else if (syscall_num == SYS_DUP) {
-        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
-        REGS_SYSNO(regs) = dup(REGS_ARG1(regs));
-        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
-    } else if (syscall_num == SYS_DUP2) {
-        UABI_VALIDATE_FD(REGS_ARG1(regs), syscall_num);
-        UABI_VALIDATE_FD(REGS_ARG2(regs), syscall_num);
-        REGS_SYSNO(regs) = dup2(REGS_ARG1(regs), REGS_ARG2(regs));
-        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
-    } else if (syscall_num == SYS_PIPE) {
-        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
-        REGS_SYSNO(regs) = pipe((int*)REGS_ARG1(regs));
-        UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
-    } else if (syscall_num == SYS_FORK) {
-        REGS_SYSNO(regs) = sys_fork(regs);
-    } else if (syscall_num == SYS_EXECVE) {
-        UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
-        REGS_SYSNO(regs) = sys_execve((const char *)REGS_ARG1(regs), (char **)REGS_ARG2(regs), regs);
     }
 
     /* ── U-ABI v1 Syscalls (20–53) ────────────────────────────── */

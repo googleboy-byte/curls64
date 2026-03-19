@@ -12,5 +12,9 @@ void run_all_module_tests() {
     run_sched_rr_tests();
     run_sysmon_tests();
 
+    /* Core Unit Tests integrated into module suite */
+    extern void run_signal_tests();
+    run_signal_tests();
+
     kprint("--- [ MODULE TESTS ] All Module Tests Complete ---\n\n");
 }
