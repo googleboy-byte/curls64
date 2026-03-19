@@ -57,7 +57,11 @@ isr_common_stub:
     cld
     call isr_handler
 
-    ; Handle task switch if requested
+    ; Disable interrupts before checking task_switch_rsp and restoring state.
+    ; get_char_noecho uses sti which leaves IF=1 through the C return path.
+    cli
+
+    ; Handle task switch if requested (needed for schedule() in UABI_EXIT etc.)
     mov rax, [rel task_switch_rsp]
     test rax, rax
     jz .no_switch

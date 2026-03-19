@@ -1,7 +1,4 @@
-// comment out #define KABI_DEBUG 1 to switch to prod mode. in prod mode,
-// kernel shell will automatically land in ring3 on boot
-// and will automatically execute END when exiting back to kernel
-#define KABI_DEBUG 1
+#include <kernel/kconfig.h>
 #include "../../../include/module/module_abi_v1.h"
 #include "../../../libc/mem.h"
 
@@ -332,9 +329,15 @@ void shell_user_input(char *input) {
         char *init_argv[] = {"/BIN/INIT.ELF", 0};
         execute_elf("/BIN/INIT.ELF", 1, init_argv);
 
+#ifdef ARCH_X86_64
+        if (kabi_debug_enabled()) kprint("[USER] Starting User Shell /BIN/SH64.ELF ...\n");
+        char *sh_argv[] = {"/BIN/SH64.ELF", 0};
+        execute_elf("/BIN/SH64.ELF", 1, sh_argv);
+#else
         if (kabi_debug_enabled()) kprint("[USER] Starting User Shell /BIN/SH.ELF ...\n");
         char *sh_argv[] = {"/BIN/SH.ELF", 0};
         execute_elf("/BIN/SH.ELF", 1, sh_argv);
+#endif
     } else if (startsWith(input, "KILL ")) {
         int pid = 0;
         char *p = input + 5;
@@ -370,13 +373,9 @@ void shell_init() {
 }
 
 void kernel_shell() {
-#ifndef KABI_DEBUG
-    shell_user_input("USER");
-    shell_user_input("END");
-#else
+#ifdef KABI_DEBUG
     shell_user_input("CORE");
     shell_user_input("USER"); // DIAGNOSTIC run
-#endif
 
     char input[256];
     while (1) {
@@ -384,6 +383,14 @@ void kernel_shell() {
         kabi_get_line(input);
         shell_user_input(input);
     }
+#else
+    shell_user_input("USER");
+    shell_user_input("END");
+
+    while (1) {
+        asm volatile("hlt");
+    }
+#endif
 }
 
 /* --- Module Registration --- */

@@ -136,19 +136,23 @@ int elf64_load_segments(void *image, page_directory_t *pd) {
         uint64_t offset = ph[i].p_offset;
 
         // Map user range
+        // FIX: Always allocate fresh frames and zero them to avoid reusing 
+        // kernel identity-mapped frames that contain garbage.
         for (uint64_t v = va & ~0xFFFULL; v < va + memsz; v += 0x1000) {
-            page_t *page = get_page(v, 1, pd);
-            if (!PAGE_PRESENT(*page)) {
-                uintptr_t frame = pmm_first_free();
-                if (frame == (uintptr_t)-1) return -1;
-                
-                PAGE_SET_FRAME(page, (uint64_t)frame * 0x1000);
-                PAGE_SET_FLAGS(page, MMU_PRESENT | MMU_WRITABLE | MMU_USER);
-                frame_add_ref(frame);
-            } else {
-                // Already present (identity map overlap), ensure user access
-                *page |= (MMU_WRITABLE | MMU_USER);
+            uint32_t frame_idx = pmm_first_free();
+            if (frame_idx == (uint32_t)-1) return -1;
+            
+            pmm_set_frame(frame_idx);
+            phys_addr_t phys = (phys_addr_t)frame_idx * 0x1000;
+            
+            // Zero the entire frame before use
+            memory_set((uint8_t*)(PHYSMAP_BASE + phys), 0, 0x1000);
+            
+            // Map the frame into the user page directory
+            if (mmu_map_page(pd, v, phys, MMU_PRESENT | MMU_WRITABLE | MMU_USER) != 0) {
+                return -1;
             }
+            frame_add_ref(frame_idx);
         }
 
         // Copy segment data using PHYSMAP
@@ -172,7 +176,8 @@ int elf64_load_segments(void *image, page_directory_t *pd) {
             dest_va += to_copy;
         }
 
-        // Zero BSS tail
+        // BSS tail zeroing is now implicitly handled by the initial frame zeroing,
+        // but we preserve the explicit logic for clarity and completeness.
         if (memsz > filesz) {
             uint64_t bss_left = memsz - filesz;
             while (bss_left > 0) {

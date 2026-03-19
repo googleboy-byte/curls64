@@ -275,8 +275,7 @@ void init_paging() {
 #endif
 
 void page_fault(registers_t *regs) {
-    virt_addr_t faulting_address;
-    asm volatile("mov %%cr2, %0" : "=r" (faulting_address));
+    virt_addr_t faulting_address = read_cr2();
 
     int not_present = !(regs->err_code & 0x1);
     int protection_violation = regs->err_code & 0x1;
@@ -338,8 +337,36 @@ void page_fault(registers_t *regs) {
     kprint(" EIP: 0x"); hex_to_ascii(regs->eip, s); kprint(s);
 #endif
     kprint("\n");
-
     if (us) {
+        kprint("PF INSTR at 0x"); hex64_to_ascii(regs->rip, s); kprint(s); kprint(": ");
+        uint8_t *instr = (uint8_t*)regs->rip;
+        for (int i = 0; i < 4; i++) {
+            hex_to_ascii(instr[i], s); kprint(s); kprint(" ");
+        }
+        kprint("\n");
+        char s[20];
+        kprint("PF REGS: rax="); hex64_to_ascii(regs->rax, s); kprint(s);
+        kprint(" rbx="); hex64_to_ascii(regs->rbx, s); kprint(s);
+        kprint(" rcx="); hex64_to_ascii(regs->rcx, s); kprint(s);
+        kprint(" rdx="); hex64_to_ascii(regs->rdx, s); kprint(s); kprint("\n");
+        kprint("PF REGS: rsi="); hex64_to_ascii(regs->rsi, s); kprint(s);
+        kprint(" rdi="); hex64_to_ascii(regs->rdi, s); kprint(s);
+        kprint(" rbp="); hex64_to_ascii(regs->rbp, s); kprint(s);
+        kprint(" rsp="); hex64_to_ascii(regs->rsp, s); kprint(s); kprint("\n");
+        kprint("PF REGS: r8 ="); hex64_to_ascii(regs->r8, s); kprint(s);
+        kprint(" r9 ="); hex64_to_ascii(regs->r9, s); kprint(s);
+        kprint(" r10="); hex64_to_ascii(regs->r10, s); kprint(s);
+        kprint(" r11="); hex64_to_ascii(regs->r11, s); kprint(s); kprint("\n");
+        kprint("PF REGS: r12="); hex64_to_ascii(regs->r12, s); kprint(s);
+        kprint(" r13="); hex64_to_ascii(regs->r13, s); kprint(s);
+        kprint(" r14="); hex64_to_ascii(regs->r14, s); kprint(s);
+        kprint(" r15="); hex64_to_ascii(regs->r15, s); kprint(s); kprint("\n");
+        kprint("PF REGS: rip="); hex64_to_ascii(regs->rip, s); kprint(s);
+        kprint(" cs ="); hex64_to_ascii(regs->cs, s); kprint(s);
+        kprint(" rfl="); hex64_to_ascii(regs->rflags, s); kprint(s); kprint("\n");
+        kprint("PF REGS: ursp="); hex64_to_ascii(regs->rsp, s); kprint(s);
+        kprint(" ss="); hex64_to_ascii(regs->ss, s); kprint(s); kprint("\n");
+
         task_t *self = (task_t*)current_task;
         self->state = TASK_ZOMBIE;
         if (self->parent && self->parent->state == TASK_WAITING) self->parent->state = TASK_READY;

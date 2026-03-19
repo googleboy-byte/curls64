@@ -13,7 +13,7 @@
 static void syscall_handler(registers_t *regs) {
     assert_on_kstack(regs);
     
-    int is64 = (regs->cs == 0x33);
+    int is64 = (regs->cs == 0x1B);
     uint32_t syscall_num = REGS_SYSNO(regs);
     KTRACE1(KTRACE_SYSCALL_ENTER, syscall_num);
     
