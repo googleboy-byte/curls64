@@ -1,4 +1,4 @@
-#define KABI_DEBUG 1
+#include <kernel/kconfig.h>
 #include "../../include/kabi/kabi_v1.h"
 #include "kernel_api.h"
 #include "task.h"

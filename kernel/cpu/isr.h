@@ -112,6 +112,12 @@ static inline uint32_t irq_save() {
 static inline void irq_restore(uint32_t flags) {
     asm volatile("push %0; popf" : : "r"(flags) : "memory", "cc");
 }
+
+static inline uint32_t read_cr2() {
+    uint32_t val;
+    asm volatile("mov %%cr2, %0" : "=r"(val));
+    return val;
+}
 #else
 static inline uint64_t irq_save() {
     uint64_t flags;
@@ -121,6 +127,12 @@ static inline uint64_t irq_save() {
 
 static inline void irq_restore(uint64_t flags) {
     asm volatile("push %0; popfq" : : "r"(flags) : "memory", "cc");
+}
+
+static inline uint64_t read_cr2() {
+    uint64_t val;
+    asm volatile("mov %%cr2, %0" : "=r"(val));
+    return val;
 }
 #endif
 

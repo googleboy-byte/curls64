@@ -45,11 +45,7 @@ fs_node_t* pipe_create_node(pipe_t *p) {
     return node;
 }
 
-#ifdef ARCH_X86_64
 uint64_t pipe_read(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer) {
-#else
-uint32_t pipe_read(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer) {
-#endif
     pipe_t *p = (pipe_t*)node->impl;
     if (!p) return 0;
     (void)offset;
@@ -88,11 +84,7 @@ uint32_t pipe_read(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buf
     return read_bytes;
 }
 
-#ifdef ARCH_X86_64
 uint64_t pipe_write(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer) {
-#else
-uint32_t pipe_write(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer) {
-#endif
     pipe_t *p = (pipe_t*)node->impl;
     if (!p) return 0;
     (void)offset;

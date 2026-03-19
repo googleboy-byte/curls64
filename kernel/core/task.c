@@ -575,7 +575,7 @@ int spawn_process(virt_addr_t entry_point, virt_addr_t user_stack) {
     *(--stack) = 0x23;              // SS (user data segment 0x20 | RPL 3)
     *(--stack) = user_stack;        // RSP (user stack)
     *(--stack) = 0x202;             // RFLAGS (IF=1, bit 1 always 1)
-    *(--stack) = 0x1B;              // CS (user code segment 0x18 | RPL 3)
+    *(--stack) = 0x1B;              // CS (64-bit user code segment | RPL 3)
     *(--stack) = entry_point;       // RIP (where to start executing)
     
     // Interrupt number and error code

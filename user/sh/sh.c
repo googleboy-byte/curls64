@@ -1,4 +1,8 @@
+#ifdef ARCH_X86_64
+#include "../../include/uabi/uabi_v2.h"
+#else
 #include "../../include/module/module_abi_v1.h"
+#endif
 #include "../lib/ulib.h"
 
 // Current working directory
@@ -22,7 +26,7 @@ static int history_current = -1;
 static char session_log_path[64] = "";
 
 // Command buffer
-static char input[256];
+static char input[512];
 
 // Shell variables
 struct sh_var {
@@ -99,7 +103,11 @@ static void expand_variables(char *line) {
 
 // Helper: Print prompt
 static void print_prompt() {
+#ifdef ARCH_X86_64
+    ulib_print("(sh64:");
+#else
     ulib_print("(sh:");
+#endif
     ulib_print(cwd);
     ulib_print(")> ");
 }
@@ -507,8 +515,11 @@ static void run_simple_command(char *line) {
 static void parse_and_execute(char *line) {
     // Trim leading/trailing spaces
     while (*line == ' ') line++;
-    char *end = line + ulib_strlen(line) - 1;
-    while (end > line && *end == ' ') *end-- = '\0';
+    int len = ulib_strlen(line);
+    if (len == 0) return;
+
+    char *end = line + len - 1;
+    while (end >= line && *end == ' ') *end-- = '\0';
     if (*line == '\0') return;
 
     // Handle pipes
@@ -595,6 +606,7 @@ static void history_save() {
 }
 
 static void history_add(const char *cmd) {
+#ifndef ARCH_X86_64
     if (!cmd || cmd[0] == '\0') return;
 
     // SECURITY: Don't add commands that touch the history file itself
@@ -628,6 +640,7 @@ static void history_add(const char *cmd) {
         }
         ulib_strcpy(history[MAX_HISTORY-1], cmd);
     }
+#endif
 }
 
 static void sh_readline(char *buf, int max) {
@@ -703,7 +716,11 @@ static int get_line_from_fd(int fd, char *buf, int max) {
 }
 
 // Entry point
+#ifdef ARCH_X86_64
+int main(int argc, char **argv) {
+#else
 void _start(int argc, char **argv) {
+#endif
     // Initialize working directory from kernel
     uabi_getcwd(cwd, sizeof(cwd));
     

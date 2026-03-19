@@ -24,13 +24,8 @@ int get_debug_pipe_count();
 // Internal Pipe API
 pipe_t* pipe_create(uint32_t size);
 fs_node_t* pipe_create_node(pipe_t *p);
-#ifdef ARCH_X86_64
 uint64_t pipe_read(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer);
 uint64_t pipe_write(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buffer);
-#else
-uint32_t pipe_read(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer);
-uint32_t pipe_write(fs_node_t *node, uint32_t offset, uint32_t size, uint8_t *buffer);
-#endif
 
 void pipe_add_reader(pipe_t *p);
 void pipe_add_writer(pipe_t *p);

@@ -268,6 +268,21 @@ int sys_execve(const char *path, char **argv, registers_t *regs) {
     int caller_is_32bit = 1;
 #endif
 
+    // Pre-calculate argc before switching page directory
+    uint32_t argc = 0;
+    if (argv) {
+#ifdef ARCH_X86_64
+        if (caller_is_32bit) {
+            uint32_t *argv32 = (uint32_t*)argv;
+            while (argv32[argc]) argc++;
+        } else {
+#endif
+            while (argv[argc]) argc++;
+#ifdef ARCH_X86_64
+        }
+#endif
+    }
+
     virt_addr_t new_sp = build_user_stack(new_pd, argv, elf_stack_top, elf_stack_size, caller_is_32bit);
     if (!new_sp) {
         free_page_directory(new_pd);
@@ -297,10 +312,7 @@ int sys_execve(const char *path, char **argv, registers_t *regs) {
     // 6. Transition to user mode (set registers)
     // In x86_64, argc and argv should be in rdi and rsi
     // according to System V ABI, though they are also on the stack.
-    uint64_t argc = 0;
-    if (argv) {
-        while (argv[argc]) argc++;
-    }
+    // (argc already calculated above before PD switch)
 
     if (kabi_debug_enabled()) {
         char s[20];
@@ -312,6 +324,20 @@ int sys_execve(const char *path, char **argv, registers_t *regs) {
     regs->rip = (uintptr_t)res.entry;
     regs->rsp = (uint64_t)new_sp;
     regs->rax = 0;
+    regs->rbx = 0;
+    regs->rcx = 0;
+    regs->rdx = 0;
+    regs->rsi = 0;
+    regs->rdi = 0;
+    regs->rbp = 0;
+    regs->r8 = 0;
+    regs->r9 = 0;
+    regs->r10 = 0;
+    regs->r11 = 0;
+    regs->r12 = 0;
+    regs->r13 = 0;
+    regs->r14 = 0;
+    regs->r15 = 0;
 
     if (kabi_debug_enabled()) {
         char s[20];

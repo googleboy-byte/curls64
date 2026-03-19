@@ -9,14 +9,15 @@ CC = gcc
 GDB = gdb
 # -g: Use debugging symbols in gcc
 CFLAGS = -g -ffreestanding -m32 -fno-pie -no-pie -fno-pic -Ikernel/include
-CFLAGS64 = -g -ffreestanding -m64 -fno-pie -no-pie -fno-pic -Ikernel/include -DARCH_X86_64
+CFLAGS64 = -g -ffreestanding -m64 -fno-pie -no-pie -fno-pic -mno-red-zone -Ikernel/include -DARCH_X86_64
+CFLAGS64_USER = -g -ffreestanding -m64 -fno-pie -no-pie -fno-pic -Ikernel/include -DARCH_X86_64
 LD64 = ld -m elf_x86_64
 USER_BINARIES = user/hello/hello.elf user/argtest/argtest.elf user/init/init.elf user/sh/sh.elf user/lappy/lappy.elf \
                 user/ls/ls.elf user/ps/ps.elf user/top/top.elf user/cat/cat.elf user/touch/touch.elf user/clear/clear.elf user/sleep/sleep.elf \
                 user/echo/echo.elf user/pwd/pwd.elf user/debug/debug.elf user/write/write.elf user/write_a/write_a.elf user/help/help.elf \
                 user/mkdir/mkdir.elf user/rm/rm.elf user/cp/cp.elf \
                 user/devs/devs.elf user/mount/mount.elf user/umount/umount.elf \
-                user/hello/hello64.elf
+                user/hello/hello64.elf user/sh/sh64.elf
 
 # Build output directories
 BUILD_DIR = build
@@ -169,37 +170,39 @@ $(IMG): $(USER_BINARIES) | $(BUILD_DIR)
 	mmd -i $(IMG) ::/BIN
 	mmd -i $(IMG) ::/ETC
 	mmd -i $(IMG) ::/TMP
-	mcopy -i $(IMG) user/hello/hello.elf ::/BIN/HELLO.ELF
-	mcopy -i $(IMG) user/argtest/argtest.elf ::/BIN/ARGTEST.ELF
-	mcopy -i $(IMG) user/init/init.elf ::/BIN/INIT.ELF
-	mcopy -i $(IMG) user/sh/sh.elf ::/BIN/SH.ELF
-	mcopy -i $(IMG) user/lappy/lappy.elf ::/BIN/LAPPY.ELF
-	mcopy -i $(IMG) user/ls/ls.elf ::/BIN/LS.ELF
-	mcopy -i $(IMG) user/ps/ps.elf ::/BIN/PS.ELF
-	mcopy -i $(IMG) user/top/top.elf ::/BIN/TOP.ELF
-	mcopy -i $(IMG) user/cat/cat.elf ::/BIN/CAT.ELF
-	mcopy -i $(IMG) user/touch/touch.elf ::/BIN/TOUCH.ELF
-	mcopy -i $(IMG) user/clear/clear.elf ::/BIN/CLEAR.ELF
-	mcopy -i $(IMG) user/sleep/sleep.elf ::/BIN/SLEEP.ELF
-	mcopy -i $(IMG) user/echo/echo.elf ::/BIN/ECHO.ELF
-	mcopy -i $(IMG) user/pwd/pwd.elf ::/BIN/PWD.ELF
-	mcopy -i $(IMG) user/debug/debug.elf ::/BIN/DEBUG.ELF
-	mcopy -i $(IMG) user/write/write.elf ::/BIN/WRITE.ELF
-	mcopy -i $(IMG) user/write_a/write_a.elf ::/BIN/WRITE_A.ELF
-	mcopy -i $(IMG) user/help/help.elf ::/BIN/HELP.ELF
-	mcopy -i $(IMG) user/mkdir/mkdir.elf ::/BIN/MKDIR.ELF
-	mcopy -i $(IMG) user/rm/rm.elf ::/BIN/RM.ELF
-	mcopy -i $(IMG) user/devs/devs.elf ::/BIN/DEVS.ELF
-	mcopy -i $(IMG) user/mount/mount.elf ::/BIN/MOUNT.ELF
-	mcopy -i $(IMG) user/umount/umount.elf ::/BIN/UMOUNT.ELF
-	mcopy -i $(IMG) user/hello/hello64.elf ::/BIN/HELLO64.ELF
-	mcopy -i $(IMG) user/cp/cp.elf ::/BIN/CP.ELF
+	mcopy -o -i $(IMG) user/hello/hello.elf ::/BIN/HELLO.ELF
+	mcopy -o -i $(IMG) user/argtest/argtest.elf ::/BIN/ARGTEST.ELF
+	mcopy -o -i $(IMG) user/init/init.elf ::/BIN/INIT.ELF
+	mcopy -o -i $(IMG) user/sh/sh.elf ::/BIN/SH.ELF
+	mcopy -o -i $(IMG) user/sh/sh64.elf ::/BIN/SH64.ELF
+	mcopy -o -i $(IMG) user/lappy/lappy.elf ::/BIN/LAPPY.ELF
+	mcopy -o -i $(IMG) user/ls/ls.elf ::/BIN/LS.ELF
+	mcopy -o -i $(IMG) user/ps/ps.elf ::/BIN/PS.ELF
+	mcopy -o -i $(IMG) user/top/top.elf ::/BIN/TOP.ELF
+	mcopy -o -i $(IMG) user/cat/cat.elf ::/BIN/CAT.ELF
+	mcopy -o -i $(IMG) user/touch/touch.elf ::/BIN/TOUCH.ELF
+	mcopy -o -i $(IMG) user/clear/clear.elf ::/BIN/CLEAR.ELF
+	mcopy -o -i $(IMG) user/sleep/sleep.elf ::/BIN/SLEEP.ELF
+	mcopy -o -i $(IMG) user/echo/echo.elf ::/BIN/ECHO.ELF
+	mcopy -o -i $(IMG) user/pwd/pwd.elf ::/BIN/PWD.ELF
+	mcopy -o -i $(IMG) user/debug/debug.elf ::/BIN/DEBUG.ELF
+	mcopy -o -i $(IMG) user/write/write.elf ::/BIN/WRITE.ELF
+	mcopy -o -i $(IMG) user/write_a/write_a.elf ::/BIN/WRITE_A.ELF
+	mcopy -o -i $(IMG) user/help/help.elf ::/BIN/HELP.ELF
+	mcopy -o -i $(IMG) user/mkdir/mkdir.elf ::/BIN/MKDIR.ELF
+	mcopy -o -i $(IMG) user/rm/rm.elf ::/BIN/RM.ELF
+	mcopy -o -i $(IMG) user/devs/devs.elf ::/BIN/DEVS.ELF
+	mcopy -o -i $(IMG) user/mount/mount.elf ::/BIN/MOUNT.ELF
+	mcopy -o -i $(IMG) user/umount/umount.elf ::/BIN/UMOUNT.ELF
+	mcopy -o -i $(IMG) user/hello/hello64.elf ::/BIN/HELLO64.ELF
+	mcopy -o -i $(IMG) user/cp/cp.elf ::/BIN/CP.ELF
+	mcopy -o -i $(IMG) user/sh/sh64.elf ::/BIN/SH64.ELF
 	echo "Welcome to Curls OS!" > $(BUILD_DIR)/motd.txt
-	mcopy -i $(IMG) $(BUILD_DIR)/motd.txt ::/ETC/MOTD
-	mcopy -i $(IMG) user/sh/test.sh ::/ETC/TEST.SH
-	mcopy -i $(IMG) user/sh/verify_sh.sh ::/ETC/VERIFY.SH
-	mcopy -i $(IMG) user/sh/verify_for.sh ::/ETC/V_FOR.SH
-	mcopy -i $(IMG) user/sh/test_usb.sh ::/ETC/TEST_USB.SH
+	mcopy -o -i $(IMG) $(BUILD_DIR)/motd.txt ::/ETC/MOTD
+	mcopy -o -i $(IMG) user/sh/test.sh ::/ETC/TEST.SH
+	mcopy -o -i $(IMG) user/sh/verify_sh.sh ::/ETC/VERIFY.SH
+	mcopy -o -i $(IMG) user/sh/verify_for.sh ::/ETC/V_FOR.SH
+	mcopy -o -i $(IMG) user/sh/test_usb.sh ::/ETC/TEST_USB.SH
 	mcopy -i $(IMG) user/sh/test_cp.sh ::/ETC/TEST_CP.SH
 	rm $(BUILD_DIR)/motd.txt
 	mdir -i $(IMG) ::/BIN
@@ -314,6 +317,9 @@ user/lib/uabi_syscalls.o: user/lib/uabi_syscalls.s
 user/lib/ulib.o: user/lib/ulib.c user/lib/ulib.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
+user/lib/ulib64.o: user/lib/ulib.c user/lib/ulib.h
+	$(CC) $(CFLAGS64_USER) -c $< -o $@
+
 user/lib/syscall.o: user/lib/syscall.s
 	nasm -f elf32 $< -o $@
 
@@ -328,7 +334,7 @@ user/hello/hello.elf: user/hello/hello.o user/lib/syscall.o user/lib/user.ld
 	ld -m elf_i386 -o $@ -T user/lib/user.ld user/hello/hello.o user/lib/syscall.o
 
 user/hello/hello64.o: user/hello/hello64.c
-	$(CC) $(CFLAGS64) -c $< -o $@
+	$(CC) $(CFLAGS64_USER) -c $< -o $@
 
 user/hello/hello64.elf: user/lib/uabi_syscalls64.o user/hello/hello64.o user/lib/user64.ld
 	$(LD64) -e _start -o $@ -T user/lib/user64.ld user/lib/uabi_syscalls64.o user/hello/hello64.o
@@ -341,6 +347,9 @@ user/init/init.elf: user/init/init.o user/lib/syscall.o user/lib/user.ld
 
 user/sh/sh.elf: user/sh/sh.o user/lib/uabi_syscalls.o user/lib/ulib.o user/lib/user.ld
 	ld -m elf_i386 -o $@ -T user/lib/user.ld user/sh/sh.o user/lib/uabi_syscalls.o user/lib/ulib.o
+
+user/sh/sh64.elf: user/sh/sh64.o user/lib/ulib64.o user/lib/uabi_syscalls64.o user/lib/user64.ld
+	$(LD64) -e _start -o $@ -T user/lib/user64.ld user/lib/uabi_syscalls64.o user/lib/ulib64.o user/sh/sh64.o
 
 user/lappy/lappy.o: user/lappy/lappy.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -356,6 +365,9 @@ user/init/init.o: user/init/init.c
 
 user/sh/sh.o: user/sh/sh.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+user/sh/sh64.o: user/sh/sh.c
+	$(CC) $(CFLAGS64_USER) -c $< -o $@
 
 user/hello/hello.o: user/hello/hello.c
 	$(CC) $(CFLAGS) -c $< -o $@
