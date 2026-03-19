@@ -13,6 +13,7 @@
 static void syscall_handler(registers_t *regs) {
     assert_on_kstack(regs);
     
+    int is64 = (regs->cs == 0x33);
     uint32_t syscall_num = REGS_SYSNO(regs);
     KTRACE1(KTRACE_SYSCALL_ENTER, syscall_num);
     
@@ -61,7 +62,7 @@ static void syscall_handler(registers_t *regs) {
         UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
         UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
         UABI_VALIDATE_POSITIVE(REGS_ARG3(regs), syscall_num);
-        REGS_SYSNO(regs) = sys_readdir((const char *)REGS_ARG1(regs), (void *)REGS_ARG2(regs), REGS_ARG3(regs));
+        REGS_SYSNO(regs) = sys_readdir((const char *)REGS_ARG1(regs), (void *)REGS_ARG2(regs), REGS_ARG3(regs), is64);
         UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == 25) { /* UABI_GETCWD */
         UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
@@ -73,7 +74,7 @@ static void syscall_handler(registers_t *regs) {
     } else if (syscall_num == 27) { /* UABI_STAT */
         UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
         UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
-        REGS_SYSNO(regs) = sys_stat((const char *)REGS_ARG1(regs), (void *)REGS_ARG2(regs));
+        REGS_SYSNO(regs) = sys_stat((const char *)REGS_ARG1(regs), (void *)REGS_ARG2(regs), is64);
         if (kabi_debug_enabled() && REGS_SYSNO(regs) != 0) {
              kprint("[STAT] fail path="); kprint((const char *)REGS_ARG1(regs)); kprint("\n");
         }
@@ -150,11 +151,11 @@ static void syscall_handler(registers_t *regs) {
     } else if (syscall_num == 45) { /* UABI_PS */
         UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
         UABI_VALIDATE_POSITIVE(REGS_ARG2(regs), syscall_num);
-        REGS_SYSNO(regs) = sys_ps((void *)REGS_ARG1(regs), REGS_ARG2(regs));
+        REGS_SYSNO(regs) = sys_ps((void *)REGS_ARG1(regs), REGS_ARG2(regs), is64);
         UABI_VALIDATE_OUTPUT(REGS_SYSNO(regs), syscall_num);
     } else if (syscall_num == 46) { /* UABI_MEMSTAT */
         UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
-        REGS_SYSNO(regs) = sys_memstat((void *)REGS_ARG1(regs));
+        REGS_SYSNO(regs) = sys_memstat((void *)REGS_ARG1(regs), is64);
     } else if (syscall_num == 47) { /* UABI_SET_DEBUG */
         extern int kabi_debug_enabled();
         extern void kabi_set_debug(int enabled);
@@ -213,31 +214,13 @@ static void syscall_handler(registers_t *regs) {
         REGS_SYSNO(regs) = sys_unlink((const char *)REGS_ARG1(regs));
     } else if (syscall_num == 54) { /* UABI_DEVINFO */
         extern int block_dev_get_count(void);
-        extern kabi_block_device_t* block_dev_get_by_index(int index);
         int index = (int)REGS_ARG1(regs);
         if (index == -1) {
             /* Return device count */
             REGS_SYSNO(regs) = block_dev_get_count();
         } else {
             UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
-            kabi_block_device_t *dev = block_dev_get_by_index(index);
-            if (!dev) {
-                REGS_SYSNO(regs) = (uintptr_t)(-2); /* ENOENT */
-            } else {
-                /* Copy info to userspace struct */
-                typedef struct { char name[32]; uint32_t sectors; uint32_t sector_size; int is_partition; int parent_dev; } uinfo_t;
-                uinfo_t *uinfo = (uinfo_t *)REGS_ARG2(regs);
-                /* Copy name */
-                for (int i = 0; i < 31 && dev->name[i]; i++) {
-                    uinfo->name[i] = dev->name[i];
-                    uinfo->name[i+1] = '\0';
-                }
-                uinfo->sectors = dev->size;
-                uinfo->sector_size = 512;
-                uinfo->is_partition = dev->is_partition;
-                uinfo->parent_dev = (int)dev->parent_dev;
-                REGS_SYSNO(regs) = 0;
-            }
+            REGS_SYSNO(regs) = sys_devinfo(index, (void*)REGS_ARG2(regs), is64);
         }
     } else if (syscall_num == 55) { /* UABI_MOUNT */
         UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);

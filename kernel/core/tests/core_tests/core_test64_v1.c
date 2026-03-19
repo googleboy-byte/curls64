@@ -660,12 +660,12 @@ static int test_phase16() {
 
     /* 16.3 Process info: sys_ps returns >= 1 task */
     {
-        extern int sys_ps(void *buf, int count);
-        extern int sys_memstat(void *buf);
+        extern int sys_ps(void *buf, int count, int is64);
+        extern int sys_memstat(void *buf, int is64);
         /* Use stack buffer for 4 process entries (each ~40 bytes) */
         uint8_t ps_buf[256];
         memory_set(ps_buf, 0, 256);
-        int count = sys_ps(ps_buf, 4);
+        int count = sys_ps(ps_buf, 4, 1);
         if (count >= 1) {
             log_pass("16.3", "Process info (sys_ps returned valid entries)");
         } else {
