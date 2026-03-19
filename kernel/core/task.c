@@ -441,7 +441,7 @@ int sys_fork(registers_t *regs) {
 
 int fork() {
     int pid;
-    asm volatile("mov %1, %%eax; int $0x80; mov %%eax, %0" : "=r"(pid) : "i"(SYS_FORK) : "eax");
+    asm volatile("mov %1, %%eax; int $0x80; mov %%eax, %0" : "=r"(pid) : "i"(UABI_FORK) : "eax");
     return pid;
 }
 
