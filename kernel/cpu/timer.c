@@ -1,4 +1,5 @@
 #include "timer.h"
+#include <cpu_local.h>
 #include "isr.h"
 #include "ports.h"
 #include "../../libc/function.h"

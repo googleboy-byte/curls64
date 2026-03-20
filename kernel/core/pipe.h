@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "vfs_core.h"
+#include <spinlock.h>
 
 #define PIPE_SIZE 4096
 
@@ -15,6 +16,7 @@ typedef struct {
     uint32_t readers;
     uint32_t writers;
     void *waiting_task;
+    spinlock_t lock;
 } pipe_t;
 
 // Syscall implementation

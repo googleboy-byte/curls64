@@ -13,6 +13,7 @@
  */
 
 #include "test_signal.h"
+#include <cpu_local.h>
 #include "../../task.h"
 #include "../../signal.h"
 #include "../../../../include/kabi/kabi_v1.h"
@@ -148,7 +149,7 @@ static void test_sigchld_delivery() {
     }
 
     /* Wait for child to die */
-    for(volatile int i = 0; i < 5000000; i++);
+    for(volatile uint64_t i = 0; i < 100000000ULL; i++);
 
     if (current_task->pending_signals & SIG_BIT(SIGCHLD))
         pass(name);

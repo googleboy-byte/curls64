@@ -106,7 +106,7 @@ void panic(char *message) {
     kprint(message);
     kprint(" ***\nSystem Halted.\n");
 
-    asm volatile("cli");
+    (void)irq_save();
     for (;;) asm volatile("hlt");
 }
 

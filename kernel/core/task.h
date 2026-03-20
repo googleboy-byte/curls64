@@ -84,10 +84,11 @@ typedef struct cpu_local{
     virt_addr_t kstack_top;
 
     // currently running task_t
-    task_t *current;
+    task_t *_current;
 
     // irq / nesting state
-    uint32_t irq_depth;
+    uint32_t _irq_depth;
+    volatile uint64_t _task_switch_rsp; // ADD THIS
 #ifdef ARCH_X86_64
     tss64_entry_t tss;
 #else
@@ -115,11 +116,7 @@ task_t *create_kernel_task(void (*entry)(void));
 void schedule(registers_t *r);
 
 /* GLOBALS */
-extern volatile task_t *current_task;
-extern volatile task_t *task_list;
-
-
-
+// scheduler ops
 /* Forks the current process. */
 int sys_fork(registers_t *regs);
 int fork();
@@ -173,23 +170,7 @@ int sys_exec(const char *path);
 
 extern uint32_t next_pid;
 
-static inline void assert_on_kstack(registers_t *regs) {
-    if (!current_task) return;
-    
-    uintptr_t addr = (uintptr_t)regs;
-    
-    // Check if on task stack
-    if (addr >= current_task->kernel_stack_base && addr < current_task->kernel_stack) {
-        return;
-    }
-    
-    // Check if on CPU stack (for user mode transitions)
-    if (addr >= cpu_local[0].kstack_base && addr < cpu_local[0].kstack_top) {
-        return;
-    }
-
-    panic("KERNEL STACK ESCAPE");
-}
+void assert_on_kstack(registers_t *regs);
 
 static inline void assert_on_cpu_stack(cpu_local_t *cpu) {
     uintptr_t esp;

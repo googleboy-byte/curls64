@@ -1,4 +1,5 @@
 #include "gdt.h"
+#include <cpu_local.h>
 #include "../../../../libc/mem.h"
 #include "../../../../libc/string.h"
 #include "../../../../libc/kheap.h"
@@ -85,12 +86,14 @@ void cpu_init(int cpu_id) {
 
     cpu_local_t *cpu = &cpu_local[cpu_id];
     cpu->id = cpu_id;
-
-    cpu->kstack_base = (virt_addr_t)kmalloc(KERNEL_STACK_SIZE, 1, NULL);
+    cpu->_current = 0;
+    cpu->_irq_depth = 0;
+    cpu->kstack_base = (virt_addr_t)kmalloc(8192, 4096, 0);
+    cpu->kstack_top = cpu->kstack_base + 8192;
+    // Set kernel stack for this CPU's TSS
+    cpu->tss.rsp0 = cpu->kstack_top;
+    cpu->_task_switch_rsp = cpu->kstack_top;
     
-    cpu->kstack_top = cpu->kstack_base + KERNEL_STACK_SIZE;
-    cpu->irq_depth = 0;
-
     write_tss64(GDT_TSS_BASE + (cpu_id * 2), &cpu->tss);
     
     // Set initial kernel stack
@@ -107,5 +110,5 @@ void cpu_init(int cpu_id) {
 }
 
 void set_kernel_stack(uint64_t stack) {
-    cpu_local[0].tss.rsp0 = stack;
+    get_cpu_local()->tss.rsp0 = stack;
 }

@@ -69,7 +69,7 @@ $(BUILD_DIR)/kernel.elf: boot/multiboot2_entry.o boot/kernel_entry.o ${OBJ} | $(
 # 64-bit kernel ELF (for Phase 1 verification)
 # We re-run CC with CFLAGS64 for these objects.
 # For now, we only build a subset of core objects to verify the pipeline.
-OBJ64_CORE = $(filter-out kernel/core/boot_multiboot2.o64, $(OBJ:.o=.o64)) kernel/arch/x86_64/mmu/mmu.o64
+OBJ64_CORE = $(filter-out kernel/core/boot_multiboot2.o64 kernel/core/tests/core_tests/core_test_v1.o64, $(OBJ:.o=.o64)) kernel/arch/x86_64/mmu/mmu.o64
 %.o64: %.c ${HEADERS}
 	${CC} ${CFLAGS64} -c $< -o $@
 
@@ -96,6 +96,7 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                kernel/core/boot_multiboot2_64.o64 \
                kernel/core/kernel.o64 \
                kernel/core/core_init.o64 \
+               kernel/core/cpu_local.o64 \
                kernel/arch/x86_64/mmu/mmu.o64 \
                kernel/cpu/paging.o64 \
                kernel/arch/x86_64/cpu/interrupt64.o64 kernel/cpu/isr.o64 kernel/core/task.o64 kernel/cpu/ports.o64 kernel/cpu/timer.o64 kernel/cpu/idt.o64 \

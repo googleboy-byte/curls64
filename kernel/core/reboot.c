@@ -1,4 +1,5 @@
 #include "kernel.h"
+#include "../cpu/isr.h"
 #include "../cpu/ports.h"
 #include "../../include/kabi/kabi_v1.h"
 
@@ -17,7 +18,7 @@ void core_reboot(reboot_reason_t reason) {
 
     // 1. Snapshot ktrace (if persistent ktrace is active, it survives reboot)
     // 2. Disable interrupts
-    asm volatile("cli");
+    (void)irq_save();
 
     // 3. Perform soft reboot / triple fault
     kprint("[CORE] Preparing for CPU Reset (Triple Fault)...\n");
@@ -49,7 +50,7 @@ void core_reboot(reboot_reason_t reason) {
 void core_shutdown() {
     kprint("\n[CORE] System Shutdown initiated.\n");
     
-    asm volatile("cli");
+    (void)irq_save();
 
     // QEMU/Bochs ACPI Power-off
     port_word_out(0x604, 0x2000);

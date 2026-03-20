@@ -1,4 +1,5 @@
 #include "../core/task.h"
+#include <cpu_local.h>
 #include "../fs/elf/elf32.h"
 #include "../fs/elf/elf64.h"
 #include "../cpu/paging.h"
