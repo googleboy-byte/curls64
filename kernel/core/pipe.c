@@ -1,4 +1,5 @@
 #include "pipe.h"
+#include <cpu_local.h>
 #include "../../libc/mem.h"
 #include "../../libc/string.h"
 #include "task.h"
@@ -30,6 +31,9 @@ pipe_t* pipe_create(uint32_t size) {
     p->writers = 0;
     p->waiting_task = 0;
     
+    spinlock_t init_lock = SPINLOCK_INIT;
+    p->lock = init_lock;
+    
     debug_pipe_count++;
     return p;
 }
@@ -50,12 +54,14 @@ uint64_t pipe_read(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buf
     if (!p) return 0;
     (void)offset;
 
-    extern volatile int irq_depth;
+    uint64_t flags = spin_lock_irqsave(&p->lock);
 
     // Blocking logic: wait if empty but writers > 0
     while (p->len == 0 && p->writers > 0) {
         p->waiting_task = (void*)current_task;
         current_task->state = TASK_WAITING;
+        
+        spin_unlock_irqrestore(&p->lock, flags);
         
         // Wait for an interrupt (likely timer) to wake us up or switch tasks
         // This is similar to wait_for_children logic
@@ -65,6 +71,8 @@ uint64_t pipe_read(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buf
         irq_depth++;
         irq_restore(f);
         
+        flags = spin_lock_irqsave(&p->lock);
+        
         // Clean up: if we are woken up, we are no longer waiting on THIS specific pipe
         // (Another pipe might set it again if we loop)
         p->waiting_task = 0;
@@ -72,6 +80,7 @@ uint64_t pipe_read(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buf
 
     // EOF condition: buffer empty and no writers (after potential wait)
     if (p->len == 0 && p->writers == 0) {
+        spin_unlock_irqrestore(&p->lock, flags);
         return 0;
     }
     
@@ -81,6 +90,7 @@ uint64_t pipe_read(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buf
         p->tail = (p->tail + 1) % p->size;
         p->len--;
     }
+    spin_unlock_irqrestore(&p->lock, flags);
     return read_bytes;
 }
 
@@ -89,10 +99,16 @@ uint64_t pipe_write(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *bu
     if (!p) return 0;
     (void)offset;
 
+    uint64_t flags = spin_lock_irqsave(&p->lock);
+
     // EPIPE condition: no readers
-    if (p->readers == 0) return (uint32_t)-1;
+    if (p->readers == 0) {
+        spin_unlock_irqrestore(&p->lock, flags);
+        return (uint32_t)-1;
+    }
 
     if (p->size == 0) {
+        spin_unlock_irqrestore(&p->lock, flags);
         char s[20];
         kprint("[PIPE] !!! CRITICAL: pipe_write called with size=0! p=0x");
         hex64_to_ascii((uint64_t)p, s); kprint(s); kprint("\n");
@@ -114,27 +130,37 @@ uint64_t pipe_write(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *bu
         }
     }
 
+    spin_unlock_irqrestore(&p->lock, flags);
     return written_bytes;
 }
 
 void pipe_add_reader(pipe_t *p) {
-    if (p) p->readers++;
+    if (!p) return;
+    uint64_t flags = spin_lock_irqsave(&p->lock);
+    p->readers++;
+    spin_unlock_irqrestore(&p->lock, flags);
 }
 
 void pipe_add_writer(pipe_t *p) {
-    if (p) p->writers++;
+    if (!p) return;
+    uint64_t flags = spin_lock_irqsave(&p->lock);
+    p->writers++;
+    spin_unlock_irqrestore(&p->lock, flags);
 }
 
 void pipe_remove_reader(pipe_t *p) {
     if (!p) return;
+    uint64_t flags = spin_lock_irqsave(&p->lock);
     if (p->readers > 0) p->readers--;
     if (p->readers == 0 && p->writers == 0) {
         debug_pipe_count--;
     }
+    spin_unlock_irqrestore(&p->lock, flags);
 }
 
 void pipe_remove_writer(pipe_t *p) {
     if (!p) return;
+    uint64_t flags = spin_lock_irqsave(&p->lock);
     if (p->writers > 0) p->writers--;
 
     // If last writer left, wake up reader so they see EOF
@@ -148,9 +174,9 @@ void pipe_remove_writer(pipe_t *p) {
     if (p->readers == 0 && p->writers == 0) {
         debug_pipe_count--;
     }
+    spin_unlock_irqrestore(&p->lock, flags);
 }
 
-extern volatile task_t *current_task;
 
 int pipe(int fds[2]) {
     pipe_t *p = pipe_create(PIPE_SIZE);

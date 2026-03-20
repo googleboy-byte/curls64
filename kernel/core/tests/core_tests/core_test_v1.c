@@ -1,4 +1,5 @@
 #include "core_test_v1.h"
+#include <cpu_local.h>
 #include "../../kernel.h"
 #include "../../task.h"
 #include "../../syscall_dispatch.h"

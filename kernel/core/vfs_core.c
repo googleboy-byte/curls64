@@ -1,4 +1,5 @@
 #include "vfs_core.h"
+#include <cpu_local.h>
 #include "task.h"
 #include "../../libc/mem.h"
 #include "../../libc/string.h"
@@ -9,7 +10,6 @@
 fs_node_t *fs_root = 0; // The root of the filesystem.
 fs_node_t *std_node = 0; // Singleton for stdin/stdout/stderr
 
-extern volatile task_t *current_task;
 
 /* ── Mount Table ─────────────────────────────────────────── */
 #define MAX_MOUNTS 8

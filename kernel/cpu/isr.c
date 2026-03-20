@@ -1,4 +1,5 @@
 #include "isr.h"
+#include <cpu_local.h>
 #include "idt.h"
 #include "type.h"
 #include "../../libc/string.h"
@@ -9,7 +10,6 @@
 #include "../../include/kabi/kabi_v1.h"
 
 isr_t interrupt_handlers[256];
-volatile int irq_depth = 0;
 
 #define PIC1_COMMAND 0x20
 #define PIC2_COMMAND 0xA0

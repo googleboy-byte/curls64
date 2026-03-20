@@ -1,4 +1,5 @@
 #include "task.h"
+#include <cpu_local.h>
 #include "kernel.h"
 #include "pipe.h"
 #include "../../libc/mem.h"
@@ -11,9 +12,6 @@
 #include "../../include/kabi/kabi_v1.h"
 #include "signal.h"
 
-// The currently running task.
-volatile task_t *current_task = 0;
-volatile task_t *task_list = 0;
 // The start of the task linked list.
 volatile task_t *ready_queue;
 
@@ -22,6 +20,11 @@ kabi_scheduler_ops_t *current_scheduler = 0;
 
 /* Sorted sleep queue: tasks ordered by ascending sleep_until */
 volatile task_t *sleep_queue = 0;
+
+#include <spinlock.h>
+static spinlock_t pid_lock = SPINLOCK_INIT;
+static spinlock_t rq_lock = SPINLOCK_INIT;
+static spinlock_t sq_lock = SPINLOCK_INIT;
 
 void kabi_scheduler_register(kabi_scheduler_ops_t *ops) {
     if (!ops) return;
@@ -43,10 +46,12 @@ void sleepq_insert(task_t *t, uint32_t wake_tick) {
     t->sleep_until = wake_tick;
     t->sleep_next  = NULL;
 
+    spin_lock(&sq_lock);
     /* Insert sorted by wake_tick (ascending) */
     if (!sleep_queue || wake_tick <= sleep_queue->sleep_until) {
         t->sleep_next = (task_t*)sleep_queue;
         sleep_queue = t;
+        spin_unlock(&sq_lock);
         return;
     }
     task_t *prev = (task_t*)sleep_queue;
@@ -55,21 +60,26 @@ void sleepq_insert(task_t *t, uint32_t wake_tick) {
     }
     t->sleep_next = prev->sleep_next;
     prev->sleep_next = t;
+    spin_unlock(&sq_lock);
 }
 
 void sleepq_remove(task_t *t) {
     if (!t->sleep_until) return; /* not sleeping */
+    
+    spin_lock(&sq_lock);
     t->sleep_until = 0;
 
     if ((task_t*)sleep_queue == t) {
         sleep_queue = t->sleep_next;
         t->sleep_next = NULL;
+        spin_unlock(&sq_lock);
         return;
     }
     task_t *prev = (task_t*)sleep_queue;
     while (prev && prev->sleep_next != t) prev = prev->sleep_next;
     if (prev) prev->sleep_next = t->sleep_next;
     t->sleep_next = NULL;
+    spin_unlock(&sq_lock);
 }
 
 // Some externs are needed to manipulate the kernel stack and page directory
@@ -80,7 +90,6 @@ uint32_t next_pid = 1;
 
 // Global to communicate new ESP/RSP to the IRQ/ISR handlers
 volatile uint32_t task_switch_esp = 0;
-volatile uint64_t task_switch_rsp = 0;
 
 static void validate_task(task_t *t) {
     if (!t) panic("validate_task: NULL task");
@@ -155,18 +164,35 @@ void idle_task(void) {
     }
 }
 
+void assert_on_kstack(registers_t *regs) {
+    if (!current_task) return;
+    
+    uintptr_t addr = (uintptr_t)regs;
+    
+    // Check if on task stack
+    if (addr >= current_task->kernel_stack_base && addr < current_task->kernel_stack) {
+        return;
+    }
+    
+    // Check if on CPU stack (for user mode transitions)
+    if (addr >= get_cpu_local()->kstack_base && addr < get_cpu_local()->kstack_top) {
+        return;
+    }
+
+    panic("KERNEL STACK ESCAPE");
+}
+
 void init_tasking() {
-    asm volatile("cli");
+    (void)irq_save();
     kprint("  - Initializing 'current_task' and 'ready_queue'...\n");
 
     // Allocate current_task to represent the kernel boot sequence (PID 1)
     current_task = (task_t*)kmalloc(sizeof(task_t), 0, 0);
     memory_set((uint8_t*)current_task, 0, sizeof(task_t));
-    current_task->id = next_pid++;
     current_task->state = TASK_RUNNING;
     current_task->page_directory = kernel_directory;
     current_task->magic = TASK_MAGIC;
-    
+
     // CRITICAL: PID 1 is currently running on the boot stack.
     // Under legacy BIOS loader this is 0x90000; under GRUB/Multiboot2 it is the
     // explicit mb2_boot_stack in the kernel image.
@@ -191,16 +217,21 @@ void init_tasking() {
         current_task->kernel_stack      = 0x90000;
         current_task->user_esp          = 0x90000;
     }
-    current_task->capabilities = CAP_REBOOT | CAP_SHUTDOWN | CAP_SYS_ADMIN;
-    strcpy((char*)current_task->cwd, "/");
-
-    // Set TSS for PID 1 (though it's Ring 0, good for consistency)
-    set_kernel_stack(current_task->kernel_stack);
 
     // Poison the bottom of PID 1 stack as a guard
     *(uintptr_t*)current_task->kernel_stack_base = STACK_MAGIC;
 
+    // Now it's safe if interrupts are enabled by spin_unlock
+    current_task->capabilities = CAP_REBOOT | CAP_SHUTDOWN | CAP_SYS_ADMIN;
+    strcpy((char*)current_task->cwd, "/");
+
+    spin_lock(&pid_lock);
+    current_task->id = next_pid++;
     ready_queue = current_task;
+    
+    // Set TSS for PID 1 before releasing the lock and enabling interrupts
+    set_kernel_stack(current_task->kernel_stack);
+    spin_unlock(&pid_lock);
 
     if (kabi_debug_enabled()) {
         char s[20];
@@ -234,7 +265,9 @@ task_t *create_kernel_task(void (*entry)(void)){
     task_t *new_task = (task_t*)kmalloc(sizeof(task_t), 0, 0);
     if (!new_task) panic("create_kernel_task: Out of memory for task_t");
     memory_set((uint8_t*)new_task, 0, sizeof(task_t));
+    spin_lock(&pid_lock);
     new_task->id = next_pid++;
+    spin_unlock(&pid_lock);
     new_task->page_directory = kernel_directory;
     new_task->state = TASK_READY;
     new_task->capabilities = CAP_NONE;
@@ -296,10 +329,12 @@ task_t *create_kernel_task(void (*entry)(void)){
 #ifdef ARCH_X86_64
     // On x86_64, link new task into the ready_queue circular list.
     uint32_t f = irq_save();
+    spin_lock(&rq_lock);
     task_t *tail = (task_t*)ready_queue;
     while (tail->next && tail->next != ready_queue) tail = tail->next;
     new_task->next = (task_t*)ready_queue;
     tail->next = new_task;
+    spin_unlock(&rq_lock);
     irq_restore(f);
 #endif
     return new_task;
@@ -326,7 +361,9 @@ int sys_fork(registers_t *regs) {
     // right now we can only afford 24 heh
     // since we alloc a kernel stack per task
 
+    spin_lock(&pid_lock);
     if (next_pid > MAX_TASKS) {
+        spin_unlock(&pid_lock);
         kprint("[SCHED] fork: MAX_TASKS reached\n");
         irq_restore(f);
         return -KABI_ENOMEM;
@@ -334,10 +371,11 @@ int sys_fork(registers_t *regs) {
 
     if (kabi_debug_enabled()) kprint("[FORK] pd cloned, alloc child... ");
     task_t *child = (task_t*)kmalloc(sizeof(task_t), 0, 0);
-    if (!child) panic("sys_fork: Out of memory for task_t");
+    if (!child) { spin_unlock(&pid_lock); panic("sys_fork: Out of memory for task_t"); }
     if (kabi_debug_enabled()) kprint("OK ");
     memory_set((uint8_t*)child, 0, sizeof(task_t));
     child->id = next_pid++;
+    spin_unlock(&pid_lock);
     child->page_directory = directory;
     child->parent = parent;
     child->state = TASK_READY;
@@ -426,8 +464,10 @@ int sys_fork(registers_t *regs) {
     }
 
     // Phase 6: Scheduler integration (Circular List)
+    spin_lock(&rq_lock);
     child->next = parent->next;
     parent->next = child;
+    spin_unlock(&rq_lock);
 
     // Notify scheduler
     if (current_scheduler && current_scheduler->on_task_added) {
@@ -462,16 +502,19 @@ int spawn_process(virt_addr_t entry_point, virt_addr_t user_stack) {
     // Create new task struct
     
     // set task limit wherever task_t created
+    spin_lock(&pid_lock);
     if (next_pid > MAX_TASKS) {
+        spin_unlock(&pid_lock);
         kprint("[SCHED] spawn: MAX_TASKS reached\n");
         irq_restore(f);
         return -1;
     }
 
     task_t *new_task = (task_t*)kmalloc(sizeof(task_t), 0, 0);
-    if (!new_task) panic("spawn_process: Out of memory for task_t");
+    if (!new_task) { spin_unlock(&pid_lock); panic("spawn_process: Out of memory for task_t"); }
     memory_set((uint8_t*)new_task, 0, sizeof(task_t));
     new_task->id = next_pid++;
+    spin_unlock(&pid_lock);
     new_task->page_directory = directory;
     new_task->parent = parent_task;
     new_task->state = TASK_READY;
@@ -538,8 +581,10 @@ int spawn_process(virt_addr_t entry_point, virt_addr_t user_stack) {
     promote_to_user_table(directory, user_stack - 0x1000, 0x1000); // 4KB stack
 
     // Add to ready queue (Circular List)
+    spin_lock(&rq_lock);
     new_task->next = current_task->next;
     current_task->next = new_task;
+    spin_unlock(&rq_lock);
 
     // Notify scheduler
     if (current_scheduler && current_scheduler->on_task_added) {
@@ -742,37 +787,42 @@ int task_send_signal(int pid, int sig) {
     }
 
     uint32_t f = irq_save();
+    spin_lock(&rq_lock);
     task_t *task = (task_t*)ready_queue;
-    if (!task) { irq_restore(f); return -1; }
+    if (!task) { spin_unlock(&rq_lock); irq_restore(f); return -1; }
 
     task_t *start = task;
     do {
         if (task->id == (uint32_t)pid) {
             task_deliver_signal(task, sig);
+            spin_unlock(&rq_lock);
             irq_restore(f);
             return 0;
         }
         task = task->next;
     } while (task != start && task != 0);
 
+    spin_unlock(&rq_lock);
     irq_restore(f);
     return -1; /* PID not found */
 }
 
 void task_send_sigint_foreground(void) {
     uint32_t f = irq_save();
+    spin_lock(&rq_lock);
     task_t *task = (task_t*)ready_queue;
-    if (!task) { irq_restore(f); return; }
+    if (!task) { spin_unlock(&rq_lock); irq_restore(f); return; }
 
     task_t *start = task;
     do {
-        /* Protect PID 1 (kernel shell), PID 2 (idle), PID 3 (user shell) */
-        if (task->id > 3 && task->parent && task->parent->id > 2) {
+        /* Filter: Only send SIGINT to tasks that have a sigterm_handler (Ring 3) 
+         * and are not the idle task or kernel initialization context. */
+        if (task->id > 2 && task->sigterm_handler != 0) {
             task_deliver_signal(task, SIGINT);
         }
         task = task->next;
     } while (task != start && task != 0);
-
+    spin_unlock(&rq_lock);
     irq_restore(f);
 }
 
@@ -809,11 +859,13 @@ void reap_zombies() {
 
             sleepq_remove(task); /* Ensure not dangling in sleep queue */
 
+            spin_lock(&rq_lock);
             // Remove from list
             prev->next = task->next;
             if (task == (task_t*)ready_queue) {
                 ready_queue = task->next;
             }
+            spin_unlock(&rq_lock);
 
             // Free resources
             kfree((void*)task->kernel_stack_base);
@@ -981,6 +1033,7 @@ void task_switch(registers_t *regs) {
     // Inform assembly stub of the new stack pointer
     extern volatile virt_addr_t task_switch_rsp;
     task_switch_rsp = current_task->user_esp;
+    get_cpu_local()->_task_switch_rsp = task_switch_rsp;
 }
 
 void schedule(registers_t *regs) {

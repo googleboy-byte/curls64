@@ -1,4 +1,5 @@
 #include "../../vfs_core.h"
+#include <cpu_local.h>
 #include "../../pipe.h"
 #include "../../../../include/kabi/kabi_v1.h"
 #include "../../../../libc/string.h"

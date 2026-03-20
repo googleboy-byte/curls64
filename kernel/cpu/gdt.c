@@ -1,6 +1,8 @@
 #include "gdt.h"
+#include <cpu_local.h>
 #include "../../libc/mem.h"
 #include "../../libc/string.h"
+#include "../../libc/kheap.h"
 #include "../modules/drivers/screen.h"
 #include "../core/task.h"
 
@@ -113,7 +115,8 @@ void cpu_init(int cpu_id) {
     cpu->kstack_base = (uint32_t)kmalloc(KERNEL_STACK_SIZE, 1, NULL);
 #endif
     cpu->kstack_top = cpu->kstack_base + KERNEL_STACK_SIZE;
-    cpu->irq_depth = 0;
+    cpu->_current = 0;
+    cpu->_irq_depth = 0;
 
 #ifdef ARCH_X86_64
     write_tss64(GDT_TSS_BASE + (cpu_id * 2), &cpu->tss);

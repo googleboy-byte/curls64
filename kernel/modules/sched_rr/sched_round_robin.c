@@ -1,31 +1,13 @@
 #include "../../../include/module/module_abi_v1.h"
 
-// Note: In a real system, these would be opaque via K-ABI.
-// Since we are same-binary for now, we cast.
-#define TASK_READY 0
-
-typedef struct {
-    uint32_t magic;
-    uint32_t id;
-    virt_addr_t user_esp;
-    virt_addr_t user_eip;
-    virt_addr_t kernel_stack;
-    virt_addr_t kernel_stack_base;
-    void *page_directory;
-    void *parent;
-    volatile uint8_t state;
-    uint32_t capabilities;
-    void *fd_table[32]; // MAX_FD
-    char cwd[512];
-    void *next;
-} task_struct_t;
-
-extern volatile task_struct_t *ready_queue;
-extern volatile task_struct_t *current_task;
+#include "../../core/task.h"
+#include <cpu_local.h>
 
 extern void kprint(const char*);
 extern void int_to_ascii(int, char*);
 extern void hex_to_ascii(uint64_t, char*);
+
+extern volatile task_t *ready_queue;
 
 int round_robin_pick_next(kabi_task_t **out) {
     if (!ready_queue) {
@@ -33,11 +15,11 @@ int round_robin_pick_next(kabi_task_t **out) {
         return KABI_SUCCESS;
     }
 
-    task_struct_t *next_task = current_task->next ? (task_struct_t*)current_task->next : (task_struct_t*)ready_queue;
+    task_t *next_task = current_task->next ? (task_t*)current_task->next : (task_t*)ready_queue;
 
-    while (next_task->state != TASK_READY && next_task != (task_struct_t*)current_task) {
+    while (next_task->state != TASK_READY && next_task != (task_t*)current_task) {
         next_task = next_task->next;
-        if (!next_task) next_task = (task_struct_t*)ready_queue;
+        if (!next_task) next_task = (task_t*)ready_queue;
     }
 
     *out = (kabi_task_t*)next_task;

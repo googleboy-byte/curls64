@@ -50,5 +50,5 @@ void core_init() {
     
     // Interrupts enabled by kernel_main or here?
     // User plan says 'asm volatile("sti")' at the end of core_init.
-    asm volatile("sti");
+    irq_restore(0x202);
 }

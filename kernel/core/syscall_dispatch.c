@@ -1,4 +1,5 @@
 #include "syscall_dispatch.h"
+#include <cpu_local.h>
 #include "pipe.h"
 #include "task.h"
 #include "../../libc/string.h"

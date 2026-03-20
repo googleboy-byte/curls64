@@ -1,4 +1,5 @@
 #include "paging.h"
+#include <cpu_local.h>
 #include "isr.h"
 #include "../modules/drivers/screen.h"
 #include "../core/boot_info.h"
@@ -29,23 +30,34 @@ uint32_t *frame_bitmap = 0;
 uint64_t total_frames = 0;
 int pmm_is_ready = 0;
 
+#include <spinlock.h>
+static spinlock_t pmm_lock = SPINLOCK_INIT;
+
 void pmm_set_frame(uint32_t frame) {
-    if (!frame_bitmap || frame >= total_frames) return;
+    uint64_t flags = spin_lock_irqsave(&pmm_lock);
+    if (!frame_bitmap || frame >= total_frames) { spin_unlock_irqrestore(&pmm_lock, flags); return; }
     frame_bitmap[frame / 32] |= (1 << (frame % 32));
+    spin_unlock_irqrestore(&pmm_lock, flags);
 }
 
 void pmm_clear_frame(uint32_t frame) {
-    if (!frame_bitmap || frame >= total_frames) return;
+    uint64_t flags = spin_lock_irqsave(&pmm_lock);
+    if (!frame_bitmap || frame >= total_frames) { spin_unlock_irqrestore(&pmm_lock, flags); return; }
     frame_bitmap[frame / 32] &= ~(1 << (frame % 32));
+    spin_unlock_irqrestore(&pmm_lock, flags);
 }
 
 int pmm_test_frame(uint32_t frame) {
-    if (!frame_bitmap || frame >= total_frames) return -1;
-    return (frame_bitmap[frame / 32] & (1 << (frame % 32))) ? 1 : 0;
+    uint64_t flags = spin_lock_irqsave(&pmm_lock);
+    if (!frame_bitmap || frame >= total_frames) { spin_unlock_irqrestore(&pmm_lock, flags); return -1; }
+    int res = (frame_bitmap[frame / 32] & (1 << (frame % 32))) ? 1 : 0;
+    spin_unlock_irqrestore(&pmm_lock, flags);
+    return res;
 }
 
 uint32_t pmm_first_free() {
-    if (!frame_bitmap) return (uint32_t)-1;
+    uint64_t flags = spin_lock_irqsave(&pmm_lock);
+    if (!frame_bitmap) { spin_unlock_irqrestore(&pmm_lock, flags); return (uint32_t)-1; }
     uintptr_t kernel_limit_frame = (free_mem_addr + 0xFFF) / 0x1000;
 
     for (uint32_t i = 0; i < total_frames / 32; i++) {
@@ -57,40 +69,49 @@ uint32_t pmm_first_free() {
                     // SAFETY: Never return a frame that is in the kernel's early managed range
                     if (frame < kernel_limit_frame) {
                         // This frame should have been reserved. Set it now and continue.
-                        pmm_set_frame(frame);
+                        frame_bitmap[frame / 32] |= (1 << (frame % 32)); // inline to avoid deadlock
                         continue;
                     }
+                    spin_unlock_irqrestore(&pmm_lock, flags);
                     return frame;
                 }
             }
         }
     }
+    spin_unlock_irqrestore(&pmm_lock, flags);
     return (uint32_t)-1;
 }
 
 void frame_add_ref(uint32_t frame) {
+    uint64_t flags = spin_lock_irqsave(&pmm_lock);
     if (frame_ref_count && frame < total_frames) {
         if (frame_ref_count[frame] == 0) {
-            pmm_set_frame(frame);
+            frame_bitmap[frame / 32] |= (1 << (frame % 32)); // inline to avoid deadlock
         }
         frame_ref_count[frame]++;
     }
+    spin_unlock_irqrestore(&pmm_lock, flags);
 }
 
 void frame_remove_ref(uint32_t frame) {
+    uint64_t flags = spin_lock_irqsave(&pmm_lock);
     if (frame_ref_count && frame < total_frames && frame_ref_count[frame] > 0) {
         frame_ref_count[frame]--;
         if (frame_ref_count[frame] == 0) {
-            pmm_clear_frame(frame);
+            frame_bitmap[frame / 32] &= ~(1 << (frame % 32)); // inline to avoid deadlock
         }
     }
+    spin_unlock_irqrestore(&pmm_lock, flags);
 }
 
 uint8_t frame_get_ref(uint32_t frame) {
+    uint64_t flags = spin_lock_irqsave(&pmm_lock);
+    uint8_t ref = 0;
     if (frame_ref_count && frame < total_frames) {
-        return frame_ref_count[frame];
+        ref = frame_ref_count[frame];
     }
-    return 0;
+    spin_unlock_irqrestore(&pmm_lock, flags);
+    return ref;
 }
 
 void get_pmm_stats(pmm_stats_t *stats) {

@@ -1,4 +1,5 @@
 #include "uabi_helpers.h"
+#include <cpu_local.h>
 #include "task.h"
 #include "vfs_core.h"
 #include "../../libc/string.h"
