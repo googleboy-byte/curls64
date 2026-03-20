@@ -1,7 +1,7 @@
 # Curls OS
 *I don't know what I was thinking. I don't know what I am doing.*
 
-A hobbyist x86-32 operating system written from scratch — **modular kernel**, **stable ABI**, and **expressive shell**.
+A hobbyist x86-32 operating system written from scratch: **modular kernel**, **stable ABI**, and **expressive shell**.
 
 ---
 
