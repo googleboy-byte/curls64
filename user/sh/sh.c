@@ -713,12 +713,7 @@ static int get_line_from_fd(int fd, char *buf, int max) {
     return 1;
 }
 
-// Entry point
-#ifdef ARCH_X86_64
-int main(int argc, char **argv) {
-#else
 void _start(int argc, char **argv) {
-#endif
     // Initialize working directory from kernel
     uabi_getcwd(cwd, sizeof(cwd));
     

@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include "../../include/uabi/uabi_v2.h"
 
-int main(int argc, char **argv) {
+void _start(int argc, char **argv) {
     uabi_print("Hello from 64-bit Userland!\n");
     
     // Test argc/argv
@@ -20,5 +20,4 @@ int main(int argc, char **argv) {
 
     uabi_print("Sysexit-ing...\n");
     uabi_exit(0);
-    return 0; // Should not reach
 }

@@ -359,34 +359,57 @@ void page_fault(registers_t *regs) {
 #endif
     kprint("\n");
     if (us) {
+#ifdef ARCH_X86_64
         kprint("PF INSTR at 0x"); hex64_to_ascii(regs->rip, s); kprint(s); kprint(": ");
         uint8_t *instr = (uint8_t*)regs->rip;
         for (int i = 0; i < 4; i++) {
             hex_to_ascii(instr[i], s); kprint(s); kprint(" ");
         }
         kprint("\n");
-        char s[20];
-        kprint("PF REGS: rax="); hex64_to_ascii(regs->rax, s); kprint(s);
-        kprint(" rbx="); hex64_to_ascii(regs->rbx, s); kprint(s);
-        kprint(" rcx="); hex64_to_ascii(regs->rcx, s); kprint(s);
-        kprint(" rdx="); hex64_to_ascii(regs->rdx, s); kprint(s); kprint("\n");
-        kprint("PF REGS: rsi="); hex64_to_ascii(regs->rsi, s); kprint(s);
-        kprint(" rdi="); hex64_to_ascii(regs->rdi, s); kprint(s);
-        kprint(" rbp="); hex64_to_ascii(regs->rbp, s); kprint(s);
-        kprint(" rsp="); hex64_to_ascii(regs->rsp, s); kprint(s); kprint("\n");
-        kprint("PF REGS: r8 ="); hex64_to_ascii(regs->r8, s); kprint(s);
-        kprint(" r9 ="); hex64_to_ascii(regs->r9, s); kprint(s);
-        kprint(" r10="); hex64_to_ascii(regs->r10, s); kprint(s);
-        kprint(" r11="); hex64_to_ascii(regs->r11, s); kprint(s); kprint("\n");
-        kprint("PF REGS: r12="); hex64_to_ascii(regs->r12, s); kprint(s);
-        kprint(" r13="); hex64_to_ascii(regs->r13, s); kprint(s);
-        kprint(" r14="); hex64_to_ascii(regs->r14, s); kprint(s);
-        kprint(" r15="); hex64_to_ascii(regs->r15, s); kprint(s); kprint("\n");
-        kprint("PF REGS: rip="); hex64_to_ascii(regs->rip, s); kprint(s);
-        kprint(" cs ="); hex64_to_ascii(regs->cs, s); kprint(s);
-        kprint(" rfl="); hex64_to_ascii(regs->rflags, s); kprint(s); kprint("\n");
-        kprint("PF REGS: ursp="); hex64_to_ascii(regs->rsp, s); kprint(s);
-        kprint(" ss="); hex64_to_ascii(regs->ss, s); kprint(s); kprint("\n");
+        char s2[20];
+        kprint("PF REGS: rax="); hex64_to_ascii(regs->rax, s2); kprint(s2);
+        kprint(" rbx="); hex64_to_ascii(regs->rbx, s2); kprint(s2);
+        kprint(" rcx="); hex64_to_ascii(regs->rcx, s2); kprint(s2);
+        kprint(" rdx="); hex64_to_ascii(regs->rdx, s2); kprint(s2); kprint("\n");
+        kprint("PF REGS: rsi="); hex64_to_ascii(regs->rsi, s2); kprint(s2);
+        kprint(" rdi="); hex64_to_ascii(regs->rdi, s2); kprint(s2);
+        kprint(" rbp="); hex64_to_ascii(regs->rbp, s2); kprint(s2);
+        kprint(" rsp="); hex64_to_ascii(regs->rsp, s2); kprint(s2); kprint("\n");
+        kprint("PF REGS: r8 ="); hex64_to_ascii(regs->r8, s2); kprint(s2);
+        kprint(" r9 ="); hex64_to_ascii(regs->r9, s2); kprint(s2);
+        kprint(" r10="); hex64_to_ascii(regs->r10, s2); kprint(s2);
+        kprint(" r11="); hex64_to_ascii(regs->r11, s2); kprint(s2); kprint("\n");
+        kprint("PF REGS: r12="); hex64_to_ascii(regs->r12, s2); kprint(s2);
+        kprint(" r13="); hex64_to_ascii(regs->r13, s2); kprint(s2);
+        kprint(" r14="); hex64_to_ascii(regs->r14, s2); kprint(s2);
+        kprint(" r15="); hex64_to_ascii(regs->r15, s2); kprint(s2); kprint("\n");
+        kprint("PF REGS: rip="); hex64_to_ascii(regs->rip, s2); kprint(s2);
+        kprint(" cs ="); hex64_to_ascii(regs->cs, s2); kprint(s2);
+        kprint(" rfl="); hex64_to_ascii(regs->rflags, s2); kprint(s2); kprint("\n");
+        kprint("PF REGS: ursp="); hex64_to_ascii(regs->rsp, s2); kprint(s2);
+        kprint(" ss="); hex64_to_ascii(regs->ss, s2); kprint(s2); kprint("\n");
+#else
+        kprint("PF INSTR at 0x"); hex_to_ascii(regs->eip, s); kprint(s); kprint(": ");
+        uint8_t *instr = (uint8_t*)regs->eip;
+        for (int i = 0; i < 4; i++) {
+            hex_to_ascii(instr[i], s); kprint(s); kprint(" ");
+        }
+        kprint("\n");
+        char s2[20];
+        kprint("PF REGS: eax="); hex_to_ascii(regs->eax, s2); kprint(s2);
+        kprint(" ebx="); hex_to_ascii(regs->ebx, s2); kprint(s2);
+        kprint(" ecx="); hex_to_ascii(regs->ecx, s2); kprint(s2);
+        kprint(" edx="); hex_to_ascii(regs->edx, s2); kprint(s2); kprint("\n");
+        kprint("PF REGS: esi="); hex_to_ascii(regs->esi, s2); kprint(s2);
+        kprint(" edi="); hex_to_ascii(regs->edi, s2); kprint(s2);
+        kprint(" ebp="); hex_to_ascii(regs->ebp, s2); kprint(s2);
+        kprint(" esp="); hex_to_ascii(regs->esp, s2); kprint(s2); kprint("\n");
+        kprint("PF REGS: eip="); hex_to_ascii(regs->eip, s2); kprint(s2);
+        kprint(" cs ="); hex_to_ascii(regs->cs, s2); kprint(s2);
+        kprint(" efl="); hex_to_ascii(regs->eflags, s2); kprint(s2); kprint("\n");
+        kprint("PF REGS: useresp="); hex_to_ascii(regs->esp, s2); kprint(s2);
+        kprint(" ss="); hex_to_ascii(regs->ss, s2); kprint(s2); kprint("\n");
+#endif
 
         task_t *self = (task_t*)current_task;
         self->state = TASK_ZOMBIE;
@@ -401,7 +424,7 @@ void page_fault(registers_t *regs) {
 
 #ifndef ARCH_X86_64
 void switch_page_directory(page_directory_t *dir) {
-    current_directory = (mmu_context_t*)dir;
+    current_directory = (page_directory_t*)dir;
     asm volatile("mov %0, %%cr3":: "r"(dir->physicalAddr));
     uint32_t cr0;
     asm volatile("mov %%cr0, %0": "=r"(cr0));
@@ -428,4 +451,20 @@ void unmap_page(uint32_t address) {
     page_t *page = get_page(address, 0, (page_directory_t*)kernel_directory);
     if (page) { page->present = 0; asm volatile("invlpg (%0)" ::"r" (address) : "memory"); }
 }
+
+#ifndef ARCH_X86_64
+boot_mmap_info_t boot_mmap_info = {0};
+
+page_directory_t *clone_page_directory(page_directory_t *src) {
+    return src;
+}
+
+void free_page_directory(page_directory_t *dir) {
+    (void)dir;
+}
+
+void promote_to_user_table(page_directory_t *dir, virt_addr_t virt, uint32_t size) {
+    (void)dir; (void)virt; (void)size;
+}
+#endif
 #endif

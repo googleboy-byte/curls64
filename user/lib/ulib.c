@@ -5,8 +5,8 @@
 // ============================================================================
 
 // String length
-int ulib_strlen(const char *str) {
-    int len = 0;
+size_t ulib_strlen(const char *str) {
+    size_t len = 0;
     while (str[len] != '\0') len++;
     return len;
 }
@@ -45,7 +45,7 @@ char *ulib_strcpy(char *dest, const char *src) {
 
 // String concatenate
 char *ulib_strcat(char *dest, const char *src) {
-    int dest_len = ulib_strlen(dest);
+    size_t dest_len = ulib_strlen(dest);
     int i = 0;
     while (src[i] != '\0') {
         dest[dest_len + i] = src[i];
@@ -83,19 +83,19 @@ char *ulib_strstr(const char *haystack, const char *needle) {
 }
 
 // Memory copy
-void *ulib_memcpy(void *dest, const void *src, uint32_t n) {
+void *ulib_memcpy(void *dest, const void *src, size_t n) {
     uint8_t *d = (uint8_t *)dest;
     const uint8_t *s = (const uint8_t *)src;
-    for (uint32_t i = 0; i < n; i++) {
+    for (size_t i = 0; i < n; i++) {
         d[i] = s[i];
     }
     return dest;
 }
 
 // Memory set
-void *ulib_memset(void *s, int c, uint32_t n) {
+void *ulib_memset(void *s, int c, size_t n) {
     uint8_t *p = (uint8_t *)s;
-    for (uint32_t i = 0; i < n; i++) {
+    for (size_t i = 0; i < n; i++) {
         p[i] = (uint8_t)c;
     }
     return s;
@@ -130,6 +130,16 @@ void ulib_int_to_str(int n, char *str) {
     str[i] = '\0';
 }
 
+// 64-bit integer to hex string (16 chars + null)
+void ulib_u64_to_hex(uint64_t val, char *buf) {
+    const char *hex_chars = "0123456789abcdef";
+    for (int i = 15; i >= 0; i--) {
+        buf[i] = hex_chars[val & 0xF];
+        val >>= 4;
+    }
+    buf[16] = '\0';
+}
+
 // String to integer
 int ulib_str_to_int(const char *str) {
     int result = 0;
@@ -159,3 +169,14 @@ void ulib_print(const char *str) {
 void ulib_gotoxy(int col, int row) {
     uabi_gotoxy(col, row);
 }
+
+#ifdef ARCH_X86_64
+void ulib_u64_to_dec(uint64_t val, char *buf) {
+    if (val == 0) { buf[0]='0'; buf[1]='\0'; return; }
+    char tmp[21]; int i=0;
+    while (val > 0) { tmp[i++] = '0' + (val % 10); val /= 10; }
+    int j=0;
+    while (i > 0) buf[j++] = tmp[--i];
+    buf[j] = '\0';
+}
+#endif

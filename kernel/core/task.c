@@ -353,7 +353,11 @@ int sys_fork(registers_t *regs) {
     // now so that when the parent returns to user-space, its first stack write
     // triggers a COW fault. Otherwise, it will write directly to the shared 
     // physical page, corrupting the child's identical stack frame.
+#ifdef ARCH_X86_64
     mmu_switch((mmu_context_t *)parent->page_directory);
+#else
+    switch_page_directory(parent->page_directory);
+#endif
 
     // Phase 2: Create new task structure
     
@@ -415,22 +419,38 @@ int sys_fork(registers_t *regs) {
     child->user_esp = (virt_addr_t)(child->kernel_stack - stack_used);
 
     registers_t *child_regs = (registers_t*)child->user_esp;
+    // Child's return value from fork is 0
+#ifdef ARCH_X86_64
     child_regs->rax = 0;             // Child returns 0
+#else
+    child_regs->eax = 0;
+#endif
     // Only adjust RSP for kernel-mode forks (ring 0).
     // For user-mode forks (ring 3), regs->rsp is the user's stack pointer
     // (pushed by the CPU on int 0x80) and must NOT be shifted.
     if ((regs->cs & 0x3) == 0) {
+#ifdef ARCH_X86_64
         child_regs->rsp += stack_shift;
+#else
+        child_regs->esp += stack_shift;
+#endif
     }
 
     // PHASE 4.1: Parent-Relative EBP Chain Fixup
     virt_addr_t src_stack_base = parent->kernel_stack_base;
     if (src_stack_top == cpu_local[0].kstack_top) src_stack_base = cpu_local[0].kstack_base;
 
+#ifdef ARCH_X86_64
     if (regs->rbp >= src_stack_base && regs->rbp < src_stack_top) {
         virt_addr_t parent_rbp = regs->rbp;
         virt_addr_t child_rbp  = parent_rbp + stack_shift;
         child_regs->rbp = child_rbp;
+#else
+    if (regs->ebp >= src_stack_base && regs->ebp < src_stack_top) {
+        virt_addr_t parent_rbp = regs->ebp;
+        virt_addr_t child_rbp  = parent_rbp + stack_shift;
+        child_regs->ebp = child_rbp;
+#endif
 
         int ebp_depth = 0;
         while (parent_rbp >= src_stack_base && parent_rbp < src_stack_top) {
@@ -447,7 +467,11 @@ int sys_fork(registers_t *regs) {
         }
     } else {
         // User-mode EBP or garbage, do not shift
+#ifdef ARCH_X86_64
         child_regs->rbp = regs->rbp;
+#else
+        child_regs->ebp = regs->ebp;
+#endif
     }
 
     // Phase 5: File descriptor inheritance
@@ -1018,8 +1042,13 @@ void task_switch(registers_t *regs) {
         kprint("\n");
         // Dump the actual rax at the RESTORE pointer
         registers_t *dump_regs = (registers_t*)current_task->user_esp;
+#ifdef ARCH_X86_64
         kprint("  [DUMP] rax="); hex64_to_ascii(dump_regs->rax, s); kprint(s);
         kprint(" rip="); hex64_to_ascii(dump_regs->rip, s); kprint(s);
+#else
+        kprint("  [DUMP] eax="); hex_to_ascii(dump_regs->eax, s); kprint(s);
+        kprint(" eip="); hex_to_ascii(dump_regs->eip, s); kprint(s);
+#endif
         kprint(" cs="); hex64_to_ascii(dump_regs->cs, s); kprint(s);
         kprint("\n");
     }
@@ -1039,7 +1068,6 @@ void task_switch(registers_t *regs) {
     if (current_task->user_esp & 7) panic("ESP NOT 64-BIT ALIGNED (Restore)");
 
     // Inform assembly stub of the new stack pointer
-    extern volatile virt_addr_t task_switch_rsp;
     task_switch_rsp = current_task->user_esp;
     get_cpu_local()->_task_switch_rsp = task_switch_rsp;
 }
@@ -1055,10 +1083,6 @@ int wait_for_children() {
     task_t *self = (task_t*)current_task;
     int last_status = 0;
     if (kabi_debug_enabled()) {
-        char _s[20];
-        kprint("WFC_ENTER: irq_depth="); int_to_ascii(irq_depth, _s); kprint(_s);
-        kprint(" pid="); int_to_ascii(self->id, _s); kprint(_s);
-        kprint("\n");
     }
 
     while (1) {
@@ -1087,7 +1111,6 @@ int wait_for_children() {
         if (active_children == 0 && zombies == 0) {
             if (kabi_debug_enabled()) kprint("[WAIT] No children left, returning.\n");
             irq_restore(f);
-            if (kabi_debug_enabled()) { char _s[20]; kprint("WFC_RET0: irq_depth="); int_to_ascii(irq_depth, _s); kprint(_s); kprint("\n"); }
             return last_status;
         }
 
@@ -1098,7 +1121,6 @@ int wait_for_children() {
                 char s[16]; int_to_ascii(last_status, s);
                 kprint("[WAIT] Zombie reaped, returning status: "); kprint(s); kprint("\n");
             }
-            if (kabi_debug_enabled()) { char _s[20]; kprint("WFC_RETZ: irq_depth="); int_to_ascii(irq_depth, _s); kprint(_s); kprint("\n"); }
             return last_status;
         }
 
@@ -1161,8 +1183,13 @@ void task_check_pending_signals(registers_t *regs) {
     t->pending_signals &= ~SIG_BIT(sig);
 
     /* Save original user context for sigreturn */
+#ifdef ARCH_X86_64
     t->saved_eip = regs->rip;
     t->saved_esp = regs->rsp;
+#else
+    t->saved_eip = regs->eip;
+    t->saved_esp = regs->esp;
+#endif
 
     /* ---- Build signal frame on user stack ---- */
 
@@ -1212,11 +1239,21 @@ void task_check_pending_signals(registers_t *regs) {
 
     /* ---- Redirect IRET frame to handler ---- */
     if (is_32bit) {
+#ifdef ARCH_X86_64
         regs->rip = (uint32_t)t->sigterm_handler;
         regs->rsp = (uint32_t)u;
+#else
+        regs->eip = (uint32_t)t->sigterm_handler;
+        regs->esp = (uint32_t)u;
+#endif
     } else {
+#ifdef ARCH_X86_64
         regs->rip = t->sigterm_handler;
         regs->rsp = u;
+#else
+        regs->eip = t->sigterm_handler;
+        regs->esp = u;
+#endif
     }
 
     /* Mark task as inside signal handler (reentrancy guard) */

@@ -369,7 +369,11 @@ void kabi_debug_run_test(uint32_t test_id, const char *args) {
             }
             break;
         case KABI_DEBUG_TEST_CORE:
+#ifdef ARCH_X86_64
             run_core_test64_v1();
+#else
+            kprint("core64 test is for 64-bit builds only.\n");
+#endif
             break;
         default:
             kprint("[VALIDATE FAIL] kabi_debug_run_test: unknown test_id ");

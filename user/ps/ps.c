@@ -10,7 +10,11 @@ void _start(int argc, char **argv) {
         uabi_exit(1);
     }
     
+#ifdef ARCH_X86_64
+    ulib_print("PID  PPID STATE RIP              RSP\n");
+#else
     ulib_print("PID  PPID STATE EIP      ESP\n");
+#endif
     for (int i = 0; i < count; i++) {
         char buf[16];
         
@@ -26,11 +30,19 @@ void _start(int argc, char **argv) {
         ulib_print(buf);
         ulib_print("     ");
         
+#ifdef ARCH_X86_64
+        ulib_u64_to_hex(procs[i].user_rip, buf);
+        ulib_print(buf);
+        ulib_print(" ");
+        
+        ulib_u64_to_hex(procs[i].user_rsp, buf);
+#else
         ulib_int_to_str(procs[i].user_eip, buf);
         ulib_print(buf);
         ulib_print(" ");
         
         ulib_int_to_str(procs[i].user_esp, buf);
+#endif
         ulib_print(buf);
         ulib_print("\n");
     }

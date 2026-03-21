@@ -60,7 +60,11 @@ void _start(int argc, char **argv) {
         char perms[11];
         
         // Inode (width 6, right aligned)
+#ifdef ARCH_X86_64
+        ulib_u64_to_dec(entries[i].inode, s);
+#else
         ulib_int_to_str(entries[i].inode, s);
+#endif
         print_padded_str(s, 6, 1);
         ulib_print(" ");
 
@@ -70,7 +74,11 @@ void _start(int argc, char **argv) {
         ulib_print(" ");
 
         // Size (width 10, right aligned)
+#ifdef ARCH_X86_64
+        ulib_u64_to_dec(entries[i].size, s);
+#else
         ulib_int_to_str(entries[i].size, s);
+#endif
         print_padded_str(s, 10, 1);
         ulib_print(" ");
 
