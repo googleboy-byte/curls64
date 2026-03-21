@@ -165,7 +165,15 @@ char *exception_messages[] = {
 void isr_handler(registers_t *r) {
     irq_depth++;
     assert_on_kstack(r);
-    if (irq_depth > 2) panic("EXCESSIVE IRQ NESTING (ISR)");
+    if (irq_depth > 2) {
+        char _s[20];
+        kprint("ISR PANIC: irq_depth="); int_to_ascii(irq_depth, _s); kprint(_s);
+        kprint(" int_no="); int_to_ascii(r->int_no, _s); kprint(_s);
+        kprint(" rip=0x"); hex64_to_ascii(r->rip, _s); kprint(_s);
+        kprint(" cs=0x"); hex64_to_ascii(r->cs, _s); kprint(_s);
+        kprint("\n");
+        panic("EXCESSIVE IRQ NESTING (ISR)");
+    }
     if (interrupt_handlers[r->int_no] != 0) {
         isr_t handler = interrupt_handlers[r->int_no];
         handler(r);
@@ -196,7 +204,15 @@ void register_interrupt_handler(uint8_t n, isr_t handler) {
 void irq_handler(registers_t *r) {
     irq_depth++;
     assert_on_kstack(r);
-    if (irq_depth > 2) panic("EXCESSIVE IRQ NESTING (IRQ)");
+    if (irq_depth > 2) {
+        char _s[20];
+        kprint("IRQ PANIC: irq_depth="); int_to_ascii(irq_depth, _s); kprint(_s);
+        kprint(" int_no="); int_to_ascii(r->int_no, _s); kprint(_s);
+        kprint(" rip=0x"); hex64_to_ascii(r->rip, _s); kprint(_s);
+        kprint(" cs=0x"); hex64_to_ascii(r->cs, _s); kprint(_s);
+        kprint("\n");
+        panic("EXCESSIVE IRQ NESTING (IRQ)");
+    }
     if (interrupt_handlers[r->int_no] != 0) {
         KTRACE1(KTRACE_IRQ_ENTER, r->int_no);
         isr_t handler = interrupt_handlers[r->int_no];

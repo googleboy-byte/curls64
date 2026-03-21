@@ -606,7 +606,6 @@ static void history_save() {
 }
 
 static void history_add(const char *cmd) {
-#ifndef ARCH_X86_64
     if (!cmd || cmd[0] == '\0') return;
 
     // SECURITY: Don't add commands that touch the history file itself
@@ -640,7 +639,6 @@ static void history_add(const char *cmd) {
         }
         ulib_strcpy(history[MAX_HISTORY-1], cmd);
     }
-#endif
 }
 
 static void sh_readline(char *buf, int max) {

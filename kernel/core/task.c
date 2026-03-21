@@ -773,7 +773,7 @@ do_terminate:
 
     /* If we just killed the current task, yield away */
     if (t == (task_t*)current_task) {
-        if (irq_depth > 0) irq_depth--;
+        irq_depth = 0;
         while(1) {
             asm volatile("sti; hlt");
         }
@@ -948,7 +948,15 @@ void task_switch(registers_t *regs) {
 
     if (!seen_current) panic("CURRENT TASK NOT IN READY QUEUE");
 
-    if (irq_depth > 1) return;
+    if (irq_depth > 1) {
+#ifdef KABI_DEBUG
+        kprint("WARN: task_switch with high irq_depth=");
+        char _ds[10]; int_to_ascii(irq_depth, _ds); kprint(_ds);
+        kprint(" pid="); int_to_ascii(current_task->id, _ds); kprint(_ds);
+        kprint("\n");
+#endif
+        return;
+    }
 
     // Phase 1: Context Preservation for the outgoing task
     task_t *prev_task = (task_t*)current_task;
@@ -1046,6 +1054,12 @@ void schedule(registers_t *regs) {
 int wait_for_children() {
     task_t *self = (task_t*)current_task;
     int last_status = 0;
+    if (kabi_debug_enabled()) {
+        char _s[20];
+        kprint("WFC_ENTER: irq_depth="); int_to_ascii(irq_depth, _s); kprint(_s);
+        kprint(" pid="); int_to_ascii(self->id, _s); kprint(_s);
+        kprint("\n");
+    }
 
     while (1) {
         uintptr_t f = irq_save();
@@ -1073,6 +1087,7 @@ int wait_for_children() {
         if (active_children == 0 && zombies == 0) {
             if (kabi_debug_enabled()) kprint("[WAIT] No children left, returning.\n");
             irq_restore(f);
+            if (kabi_debug_enabled()) { char _s[20]; kprint("WFC_RET0: irq_depth="); int_to_ascii(irq_depth, _s); kprint(_s); kprint("\n"); }
             return last_status;
         }
 
@@ -1083,6 +1098,7 @@ int wait_for_children() {
                 char s[16]; int_to_ascii(last_status, s);
                 kprint("[WAIT] Zombie reaped, returning status: "); kprint(s); kprint("\n");
             }
+            if (kabi_debug_enabled()) { char _s[20]; kprint("WFC_RETZ: irq_depth="); int_to_ascii(irq_depth, _s); kprint(_s); kprint("\n"); }
             return last_status;
         }
 
@@ -1091,10 +1107,11 @@ int wait_for_children() {
         irq_restore(f);
         
         while (self->state == TASK_WAITING) {
-            // Drop depth so timer interrupt can trigger a task switch
-            if (irq_depth > 0) irq_depth--;
+            // Save and restore irq_depth across the blocking wait
+            uint32_t saved_depth = irq_depth;
+            irq_depth = 0;
             asm volatile("sti; hlt; cli");
-            irq_depth++;
+            irq_depth = saved_depth;
         }
     }
 }

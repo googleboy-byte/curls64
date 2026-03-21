@@ -66,9 +66,10 @@ uint64_t pipe_read(fs_node_t *node, uint64_t offset, uint64_t size, uint8_t *buf
         // Wait for an interrupt (likely timer) to wake us up or switch tasks
         // This is similar to wait_for_children logic
         uint32_t f = irq_save();
-        if (irq_depth > 0) irq_depth--;
+        uint32_t saved_depth = irq_depth;
+        irq_depth = 0;
         asm volatile("sti; hlt; cli");
-        irq_depth++;
+        irq_depth = saved_depth;
         irq_restore(f);
         
         flags = spin_lock_irqsave(&p->lock);

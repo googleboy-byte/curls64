@@ -391,7 +391,7 @@ void page_fault(registers_t *regs) {
         task_t *self = (task_t*)current_task;
         self->state = TASK_ZOMBIE;
         if (self->parent && self->parent->state == TASK_WAITING) self->parent->state = TASK_READY;
-        if (irq_depth > 0) irq_depth--;
+        irq_depth = 0;
         asm volatile("sti; hlt");
         while(1);
     } else {

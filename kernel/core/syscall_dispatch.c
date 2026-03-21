@@ -94,6 +94,12 @@ static void syscall_handler(registers_t *regs) {
         }
         REGS_SYSNO(regs) = sys_execve((const char *)REGS_ARG1(regs), (char **)REGS_ARG2(regs), regs);
     } else if (syscall_num == 32) { /* UABI_EXIT */
+        if (kabi_debug_enabled()) {
+            char _s[20];
+            kprint("SYS_EXIT: irq_depth="); int_to_ascii(irq_depth, _s); kprint(_s);
+            kprint(" pid="); int_to_ascii(current_task->id, _s); kprint(_s);
+            kprint("\n");
+        }
         current_task->exit_code = (int)REGS_ARG1(regs);
         if (kabi_debug_enabled()) {
             char s[16]; hex_to_ascii(current_task->id, s);
