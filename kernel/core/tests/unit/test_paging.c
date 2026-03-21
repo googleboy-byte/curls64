@@ -137,7 +137,11 @@ void handle_test_command(char *input) {
             kprint("\n");
         }
     } else if (strcmp(input, "CORE_V1") == 0) {
+#ifdef ARCH_X86_64
         run_core_test64_v1();
+#else
+        kprint("core64 test is for 64-bit builds only.\n");
+#endif
     } else if (strcmp(input, "MODULES") == 0) {
         run_all_module_tests();
     } else if (strcmp(input, "EXIT") == 0) {

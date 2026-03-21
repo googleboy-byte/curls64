@@ -59,6 +59,10 @@
 #define UABI_KEY_DOWN  0x82
 #define UABI_KEY_LEFT  0x83
 #define UABI_KEY_RIGHT 0x84
+#define UABI_KEY_CTRL_UP    0x85
+#define UABI_KEY_CTRL_DOWN  0x86
+#define UABI_KEY_CTRL_LEFT  0x87
+#define UABI_KEY_CTRL_RIGHT 0x88
 
 // Return codes
 #define UABI_SUCCESS   0

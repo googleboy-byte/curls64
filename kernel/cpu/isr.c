@@ -169,7 +169,11 @@ void isr_handler(registers_t *r) {
         char _s[20];
         kprint("ISR PANIC: irq_depth="); int_to_ascii(irq_depth, _s); kprint(_s);
         kprint(" int_no="); int_to_ascii(r->int_no, _s); kprint(_s);
+#ifdef ARCH_X86_64
         kprint(" rip=0x"); hex64_to_ascii(r->rip, _s); kprint(_s);
+#else
+        kprint(" eip=0x"); hex_to_ascii(r->eip, _s); kprint(_s);
+#endif
         kprint(" cs=0x"); hex64_to_ascii(r->cs, _s); kprint(_s);
         kprint("\n");
         panic("EXCESSIVE IRQ NESTING (ISR)");
@@ -208,7 +212,11 @@ void irq_handler(registers_t *r) {
         char _s[20];
         kprint("IRQ PANIC: irq_depth="); int_to_ascii(irq_depth, _s); kprint(_s);
         kprint(" int_no="); int_to_ascii(r->int_no, _s); kprint(_s);
+#ifdef ARCH_X86_64
         kprint(" rip=0x"); hex64_to_ascii(r->rip, _s); kprint(_s);
+#else
+        kprint(" eip=0x"); hex_to_ascii(r->eip, _s); kprint(_s);
+#endif
         kprint(" cs=0x"); hex64_to_ascii(r->cs, _s); kprint(_s);
         kprint("\n");
         panic("EXCESSIVE IRQ NESTING (IRQ)");

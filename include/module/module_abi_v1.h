@@ -58,7 +58,11 @@
 #define MODULE_ABI_V1_H
 
 #include "../kabi/kabi_v1.h"
+#ifdef ARCH_X86_64
+#include "../uabi/uabi_v2.h"
+#else
 #include "../uabi/uabi_v1.h"
+#endif
 
 // ============================================================================
 // SECTION 1: KERNEL-SPACE INTERFACES (K-ABI)

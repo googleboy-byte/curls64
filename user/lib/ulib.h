@@ -2,9 +2,10 @@
 #define ULIB_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 // String functions
-int ulib_strlen(const char *str);
+size_t ulib_strlen(const char *str);
 int ulib_strcmp(const char *s1, const char *s2);
 int ulib_strncmp(const char *s1, const char *s2, int n);
 char *ulib_strcpy(char *dest, const char *src);
@@ -20,11 +21,15 @@ int uabi_dup2(int oldfd, int newfd);
 int uabi_dup(int oldfd);
 
 // Memory functions
-void *ulib_memcpy(void *dest, const void *src, uint32_t n);
-void *ulib_memset(void *s, int c, uint32_t n);
+void *ulib_memcpy(void *dest, const void *src, size_t n);
+void *ulib_memset(void *s, int c, size_t n);
 
 // Conversion functions
 void ulib_int_to_str(int n, char *str);
 int ulib_str_to_int(const char *str);
+void ulib_u64_to_hex(uint64_t val, char *buf);
+#ifdef ARCH_X86_64
+void ulib_u64_to_dec(uint64_t val, char *buf);
+#endif
 
 #endif

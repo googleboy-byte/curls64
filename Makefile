@@ -1,4 +1,4 @@
-C_SOURCES = $(filter-out kernel/modules/fs_initrd/initrd_data.c, $(wildcard kernel/core/*.c kernel/core/tests/unit/*.c kernel/core/tests/stress/*.c kernel/core/tests/core_tests/*.c kernel/modules/sched_rr/*.c kernel/modules/fs_initrd/*.c kernel/modules/drivers/*.c kernel/modules/shell/*.c kernel/modules/sysmon/*.c kernel/modules/partition/*.c kernel/modules/usb/*.c kernel/modules/test/*.c kernel/fs/fat32/*.c kernel/fs/elf/*.c kernel/proc/*.c kernel/cpu/*.c kernel/ktrace/*.c libc/*.c))
+C_SOURCES = $(filter-out kernel/modules/fs_initrd/initrd_data.c kernel/core/tests/core_tests/core_test64_v1.c kernel/core/boot_multiboot2_64.c, $(wildcard kernel/core/*.c kernel/core/tests/unit/*.c kernel/core/tests/stress/*.c kernel/core/tests/core_tests/*.c kernel/modules/sched_rr/*.c kernel/modules/fs_initrd/*.c kernel/modules/drivers/*.c kernel/modules/shell/*.c kernel/modules/sysmon/*.c kernel/modules/partition/*.c kernel/modules/usb/*.c kernel/modules/test/*.c kernel/fs/fat32/*.c kernel/fs/elf/*.c kernel/proc/*.c kernel/cpu/*.c kernel/ktrace/*.c libc/*.c))
 HEADERS = $(wildcard kernel/core/*.h kernel/core/tests/unit/*.h kernel/core/tests/stress/*.h kernel/core/tests/core_tests/*.h kernel/modules/sched_rr/*.h kernel/modules/fs_initrd/*.h kernel/modules/drivers/*.h kernel/modules/shell/*.h kernel/modules/sysmon/*.h kernel/modules/partition/*.h kernel/modules/usb/*.h kernel/modules/test/*.h kernel/fs/fat32/*.h kernel/cpu/*.h libc/*.h)
 # Nice syntax for file extension replacement
 # Note: initrd_data.o is generated and added explicitly (wildcard can't discover it pre-generation)
@@ -10,7 +10,7 @@ GDB = gdb
 # -g: Use debugging symbols in gcc
 CFLAGS = -g -ffreestanding -m32 -fno-pie -no-pie -fno-pic -Ikernel/include
 CFLAGS64 = -g -ffreestanding -m64 -fno-pie -no-pie -fno-pic -mno-red-zone -Ikernel/include -DARCH_X86_64
-CFLAGS64_USER = -g -ffreestanding -m64 -fno-pie -no-pie -fno-pic -Ikernel/include -DARCH_X86_64
+CFLAGS64_USER = -g -ffreestanding -m64 -fno-pie -no-pie -fno-pic -mno-red-zone -Ikernel/include -Iuser/lib -DARCH_X86_64
 LD64 = ld -m elf_x86_64
 USER_BINARIES = user/hello/hello.elf user/argtest/argtest.elf user/init/init.elf user/sh/sh.elf user/lappy/lappy.elf \
                 user/ls/ls.elf user/ps/ps.elf user/top/top.elf user/cat/cat.elf user/touch/touch.elf user/clear/clear.elf user/sleep/sleep.elf \
@@ -18,6 +18,32 @@ USER_BINARIES = user/hello/hello.elf user/argtest/argtest.elf user/init/init.elf
                 user/mkdir/mkdir.elf user/rm/rm.elf user/cp/cp.elf \
                 user/devs/devs.elf user/mount/mount.elf user/umount/umount.elf \
                 user/hello/hello64.elf user/sh/sh64.elf
+
+USER64_BINS = \
+  user/hello/hello64.elf \
+  user/clear/clear64.elf \
+  user/echo/echo64.elf \
+  user/init/init64.elf \
+  user/pwd/pwd64.elf \
+  user/mkdir/mkdir64.elf \
+  user/rm/rm64.elf \
+  user/sleep/sleep64.elf \
+  user/touch/touch64.elf \
+  user/debug/debug64.elf \
+  user/argtest/argtest64.elf \
+  user/cat/cat64.elf \
+  user/write/write64.elf \
+  user/write_a/write_a64.elf \
+  user/ps/ps64.elf \
+  user/top/top64.elf \
+  user/ls/ls64.elf \
+  user/cp/cp64.elf \
+  user/mount/mount64.elf \
+  user/umount/umount64.elf \
+  user/devs/devs64.elf \
+  user/lappy/lappy64.elf \
+  user/help/help64.elf \
+  user/sh/sh64.elf
 
 # Build output directories
 BUILD_DIR = build
@@ -47,7 +73,7 @@ $(BUILD_DIR)/boot/bootsect.bin: boot/bootsect.asm | $(BUILD_DIR)
 # to 'strip' them manually on this case
 # kernel.bin depends on the compiled initrd_data.o (which is compiled from the generated .c)
 $(BUILD_DIR)/kernel.bin: boot/multiboot2_entry.o boot/kernel_entry.o ${OBJ} | $(BUILD_DIR)
-	ld -m elf_i386 -o $@ -T linker.ld boot/multiboot2_entry.o boot/kernel_entry.o ${OBJ} --oformat binary
+	ld -m elf_i386 -o $@ -T linker.ld boot/multiboot2_entry.o boot/kernel_entry.o ${OBJ} $$(gcc -m32 -print-libgcc-file-name) --oformat binary
 
 # Step 1: generate initrd_data.c from the user binaries
 kernel/modules/fs_initrd/initrd_data.c: $(USER_BINARIES) kernel/modules/fs_initrd/initrd_gen.py
@@ -165,39 +191,36 @@ $(ISO_IMG): $(BUILD_DIR)/kernel.elf | $(ISO_DIR)
 	printf 'set timeout=3\nset default=0\nset gfxpayload=text\nterminal_output console\nmenuentry \"Curls\" {\n  terminal_output console\n  multiboot2 /boot/kernel.elf\n  boot\n}\n' > $(ISO_DIR)/boot/grub/grub.cfg
 	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
 
-$(IMG): $(USER_BINARIES) | $(BUILD_DIR)
+$(IMG): $(USER_BINARIES) $(USER64_BINS) | $(BUILD_DIR)
 	dd if=/dev/zero of=$(IMG) bs=1M count=64
 	mformat -i $(IMG) -F ::
 	mmd -i $(IMG) ::/BIN
 	mmd -i $(IMG) ::/ETC
 	mmd -i $(IMG) ::/TMP
-	mcopy -o -i $(IMG) user/hello/hello.elf ::/BIN/HELLO.ELF
-	mcopy -o -i $(IMG) user/argtest/argtest.elf ::/BIN/ARGTEST.ELF
-	mcopy -o -i $(IMG) user/init/init.elf ::/BIN/INIT.ELF
-	mcopy -o -i $(IMG) user/sh/sh.elf ::/BIN/SH.ELF
-	mcopy -o -i $(IMG) user/sh/sh64.elf ::/BIN/SH64.ELF
-	mcopy -o -i $(IMG) user/lappy/lappy.elf ::/BIN/LAPPY.ELF
-	mcopy -o -i $(IMG) user/ls/ls.elf ::/BIN/LS.ELF
-	mcopy -o -i $(IMG) user/ps/ps.elf ::/BIN/PS.ELF
-	mcopy -o -i $(IMG) user/top/top.elf ::/BIN/TOP.ELF
-	mcopy -o -i $(IMG) user/cat/cat.elf ::/BIN/CAT.ELF
-	mcopy -o -i $(IMG) user/touch/touch.elf ::/BIN/TOUCH.ELF
-	mcopy -o -i $(IMG) user/clear/clear.elf ::/BIN/CLEAR.ELF
-	mcopy -o -i $(IMG) user/sleep/sleep.elf ::/BIN/SLEEP.ELF
-	mcopy -o -i $(IMG) user/echo/echo.elf ::/BIN/ECHO.ELF
-	mcopy -o -i $(IMG) user/pwd/pwd.elf ::/BIN/PWD.ELF
-	mcopy -o -i $(IMG) user/debug/debug.elf ::/BIN/DEBUG.ELF
-	mcopy -o -i $(IMG) user/write/write.elf ::/BIN/WRITE.ELF
-	mcopy -o -i $(IMG) user/write_a/write_a.elf ::/BIN/WRITE_A.ELF
-	mcopy -o -i $(IMG) user/help/help.elf ::/BIN/HELP.ELF
-	mcopy -o -i $(IMG) user/mkdir/mkdir.elf ::/BIN/MKDIR.ELF
-	mcopy -o -i $(IMG) user/rm/rm.elf ::/BIN/RM.ELF
-	mcopy -o -i $(IMG) user/devs/devs.elf ::/BIN/DEVS.ELF
-	mcopy -o -i $(IMG) user/mount/mount.elf ::/BIN/MOUNT.ELF
-	mcopy -o -i $(IMG) user/umount/umount.elf ::/BIN/UMOUNT.ELF
-	mcopy -o -i $(IMG) user/hello/hello64.elf ::/BIN/HELLO64.ELF
-	mcopy -o -i $(IMG) user/cp/cp.elf ::/BIN/CP.ELF
-	mcopy -o -i $(IMG) user/sh/sh64.elf ::/BIN/SH64.ELF
+	mcopy -o -i $(IMG) user/hello/hello64.elf ::/BIN/HELLO.ELF
+	mcopy -o -i $(IMG) user/argtest/argtest64.elf ::/BIN/ARGTEST.ELF
+	mcopy -o -i $(IMG) user/init/init64.elf ::/BIN/INIT.ELF
+	mcopy -o -i $(IMG) user/sh/sh64.elf ::/BIN/SH.ELF
+	mcopy -o -i $(IMG) user/lappy/lappy64.elf ::/BIN/LAPPY.ELF
+	mcopy -o -i $(IMG) user/ls/ls64.elf ::/BIN/LS.ELF
+	mcopy -o -i $(IMG) user/ps/ps64.elf ::/BIN/PS.ELF
+	mcopy -o -i $(IMG) user/top/top64.elf ::/BIN/TOP.ELF
+	mcopy -o -i $(IMG) user/cat/cat64.elf ::/BIN/CAT.ELF
+	mcopy -o -i $(IMG) user/touch/touch64.elf ::/BIN/TOUCH.ELF
+	mcopy -o -i $(IMG) user/clear/clear64.elf ::/BIN/CLEAR.ELF
+	mcopy -o -i $(IMG) user/sleep/sleep64.elf ::/BIN/SLEEP.ELF
+	mcopy -o -i $(IMG) user/echo/echo64.elf ::/BIN/ECHO.ELF
+	mcopy -o -i $(IMG) user/pwd/pwd64.elf ::/BIN/PWD.ELF
+	mcopy -o -i $(IMG) user/debug/debug64.elf ::/BIN/DEBUG.ELF
+	mcopy -o -i $(IMG) user/write/write64.elf ::/BIN/WRITE.ELF
+	mcopy -o -i $(IMG) user/write_a/write_a64.elf ::/BIN/WRITE_A.ELF
+	mcopy -o -i $(IMG) user/help/help64.elf ::/BIN/HELP.ELF
+	mcopy -o -i $(IMG) user/mkdir/mkdir64.elf ::/BIN/MKDIR.ELF
+	mcopy -o -i $(IMG) user/rm/rm64.elf ::/BIN/RM.ELF
+	mcopy -o -i $(IMG) user/devs/devs64.elf ::/BIN/DEVS.ELF
+	mcopy -o -i $(IMG) user/mount/mount64.elf ::/BIN/MOUNT.ELF
+	mcopy -o -i $(IMG) user/umount/umount64.elf ::/BIN/UMOUNT.ELF
+	mcopy -o -i $(IMG) user/cp/cp64.elf ::/BIN/CP.ELF
 	echo "Welcome to Curls OS!" > $(BUILD_DIR)/motd.txt
 	mcopy -o -i $(IMG) $(BUILD_DIR)/motd.txt ::/ETC/MOTD
 	mcopy -o -i $(IMG) user/sh/test.sh ::/ETC/TEST.SH
@@ -337,20 +360,14 @@ user/hello/hello.elf: user/hello/hello.o user/lib/syscall.o user/lib/user.ld
 user/hello/hello64.o: user/hello/hello64.c
 	$(CC) $(CFLAGS64_USER) -c $< -o $@
 
-user/hello/hello64.elf: user/lib/uabi_syscalls64.o user/hello/hello64.o user/lib/user64.ld
-	$(LD64) -e _start -o $@ -T user/lib/user64.ld user/lib/uabi_syscalls64.o user/hello/hello64.o
-
-user/argtest/argtest.elf: user/argtest/argtest.o user/lib/syscall.o user/lib/user.ld
-	ld -m elf_i386 -o $@ -T user/lib/user.ld user/argtest/argtest.o user/lib/syscall.o
+user/argtest/argtest.elf: user/argtest/argtest.o user/lib/uabi_syscalls.o user/lib/ulib.o user/lib/user.ld
+	ld -m elf_i386 -o $@ -T user/lib/user.ld user/argtest/argtest.o user/lib/uabi_syscalls.o user/lib/ulib.o
 
 user/init/init.elf: user/init/init.o user/lib/syscall.o user/lib/user.ld
 	ld -m elf_i386 -o $@ -T user/lib/user.ld user/init/init.o user/lib/syscall.o
 
 user/sh/sh.elf: user/sh/sh.o user/lib/uabi_syscalls.o user/lib/ulib.o user/lib/user.ld
 	ld -m elf_i386 -o $@ -T user/lib/user.ld user/sh/sh.o user/lib/uabi_syscalls.o user/lib/ulib.o
-
-user/sh/sh64.elf: user/sh/sh64.o user/lib/ulib64.o user/lib/uabi_syscalls64.o user/lib/user64.ld
-	$(LD64) -e _start -o $@ -T user/lib/user64.ld user/lib/uabi_syscalls64.o user/lib/ulib64.o user/sh/sh64.o
 
 user/lappy/lappy.o: user/lappy/lappy.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -366,9 +383,6 @@ user/init/init.o: user/init/init.c
 
 user/sh/sh.o: user/sh/sh.c
 	$(CC) $(CFLAGS) -c $< -o $@
-
-user/sh/sh64.o: user/sh/sh.c
-	$(CC) $(CFLAGS64_USER) -c $< -o $@
 
 user/hello/hello.o: user/hello/hello.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -489,6 +503,16 @@ user/umount/umount.elf: user/umount/umount.o user/lib/uabi_syscalls.o user/lib/u
 
 user/nano/nano.o: user/nano/nano.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+%64.o: %.c
+	$(CC) $(CFLAGS64_USER) -c $< -o $@
+
+%64.elf: %64.o user/lib/ulib64.o user/lib/uabi_syscalls64.o
+	$(LD64) -e _start -o $@ \
+	  -T user/lib/user64.ld \
+	  user/lib/uabi_syscalls64.o \
+	  user/lib/ulib64.o \
+	  $<
 
 clean:
 	rm -rf $(BUILD_DIR) $(LOG_DIR)

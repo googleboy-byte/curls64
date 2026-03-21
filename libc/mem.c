@@ -69,7 +69,11 @@ void *kmalloc(size_t size, int align, phys_addr_t *phys_addr) {
         void *addr = alloc(size, (uint8_t)align, kheap);
         if (phys_addr) {
             page_t *page = get_page((virt_addr_t)addr, 0, kernel_directory);
+#ifndef ARCH_X86_64
+            *phys_addr = (phys_addr_t)PAGE_FRAME(page) + ((uintptr_t)addr & 0xFFF);
+#else
             *phys_addr = (phys_addr_t)PAGE_FRAME(*page) + ((uintptr_t)addr & 0xFFF);
+#endif
         }
         return addr;
     } else {

@@ -326,22 +326,14 @@ void shell_user_input(char *input) {
             }
         }
 
-        if (kabi_debug_enabled()) { char _s[20]; kprint("USER_ENTRY: irq_depth="); kabi_int_to_ascii(irq_depth, _s); kprint(_s); kprint("\n"); }
         if (kabi_debug_enabled()) kprint("[USER] Executing /BIN/INIT.ELF ...\n");
         char *init_argv[] = {"/BIN/INIT.ELF", 0};
         execute_elf("/BIN/INIT.ELF", 1, init_argv);
-        if (kabi_debug_enabled()) { char _s[20]; kprint("AFTER_INIT: irq_depth="); kabi_int_to_ascii(irq_depth, _s); kprint(_s); kprint("\n"); }
 
 #ifdef ARCH_X86_64
-        if (kabi_debug_enabled()) {
-            char _s[20];
-            kprint("SPAWN: irq_depth="); kabi_int_to_ascii(irq_depth, _s); kprint(_s);
-            kprint(" before SH64\n");
-        }
         if (kabi_debug_enabled()) kprint("[USER] Starting User Shell /BIN/SH64.ELF ...\n");
         char *sh_argv[] = {"/BIN/SH64.ELF", 0};
         execute_elf("/BIN/SH64.ELF", 1, sh_argv);
-        if (kabi_debug_enabled()) { char _s[20]; kprint("AFTER_SH64: irq_depth="); kabi_int_to_ascii(irq_depth, _s); kprint(_s); kprint("\n"); }
 #else
         if (kabi_debug_enabled()) kprint("[USER] Starting User Shell /BIN/SH.ELF ...\n");
         char *sh_argv[] = {"/BIN/SH.ELF", 0};

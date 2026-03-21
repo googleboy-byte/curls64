@@ -30,7 +30,11 @@ void _start(int argc, char **argv) {
                 for (int j = 0; j < 5 - len; j++) ulib_print(" ");
 
                 // Ticks
+#ifdef ARCH_X86_64
+                ulib_u64_to_hex(procs[i].ticks, buf);
+#else
                 ulib_int_to_str(procs[i].ticks, buf);
+#endif
                 ulib_print(buf);
                 len = ulib_strlen(buf);
                 for (int j = 0; j < 7 - len; j++) ulib_print(" ");

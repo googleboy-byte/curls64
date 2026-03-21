@@ -1,7 +1,6 @@
 #include <stdint.h>
-
-extern void syscall_print(const char *s);
-extern void syscall_exit();
+#include "../../include/module/module_abi_v1.h"
+#include "../lib/ulib.h"
 
 void int_to_ascii(int n, char str[]) {
     int i, sign;
@@ -32,27 +31,27 @@ void _start(int argc, char **argv) {
             if (h[i] != argv[1][i]) { match = 0; break; }
         }
         if (match) {
-            syscall_print("Usage: argtest [args...]\nPrints all received command-line arguments.\n");
-            syscall_exit();
+            ulib_print("Usage: argtest [args...]\nPrints all received command-line arguments.\n");
+            uabi_exit(0);
         }
     }
-    syscall_print("Argtest started!\n");
+    ulib_print("Argtest started!\n");
     
     char s[16];
-    syscall_print("argc: ");
+    ulib_print("argc: ");
     int_to_ascii(argc, s);
-    syscall_print(s);
-    syscall_print("\n");
+    ulib_print(s);
+    ulib_print("\n");
 
     for (int i = 0; i < argc; i++) {
-        syscall_print("argv[");
+        ulib_print("argv[");
         int_to_ascii(i, s);
-        syscall_print(s);
-        syscall_print("]: ");
-        syscall_print(argv[i]);
-        syscall_print("\n");
+        ulib_print(s);
+        ulib_print("]: ");
+        ulib_print(argv[i]);
+        ulib_print("\n");
     }
 
-    syscall_print("Argtest exiting...\n");
-    syscall_exit();
+    ulib_print("Argtest exiting...\n");
+    uabi_exit(0);
 }

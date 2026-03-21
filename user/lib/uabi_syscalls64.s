@@ -1,22 +1,4 @@
 [bits 64]
-extern main
-global _start
-
-_start:
-    ; At entry, stack points to [argc] (64-bit)
-    ; [rsp + 8] points to argv[0]
-    mov rdi, [rsp]       ; rdi = argc
-    lea rsi, [rsp + 8]   ; rsi = argv (array of pointers)
-    
-    ; Ensure 16-byte stack alignment for C code before call
-    and rsp, -16
-    
-    call main
-    
-    ; Exit with return value
-    mov rdi, rax
-    call uabi_exit
-    hlt ; Should not reach
 
 global uabi_open
 global uabi_read
@@ -48,9 +30,13 @@ global uabi_gotoxy
 global uabi_ps
 global uabi_memstat
 global uabi_set_debug
+global uabi_debug_enabled
 global uabi_kill
 global uabi_sigaction
 global uabi_sleep
+global uabi_devinfo
+global uabi_mount
+global uabi_umount
 
 ; Syscall convention for Curls x64 (int 0x80):
 ; rax = syscall number
@@ -128,7 +114,24 @@ uabi_gotoxy:    SYSCALL2 44
 
 uabi_ps:        SYSCALL2 45
 uabi_memstat:   SYSCALL1 46
-uabi_set_debug: SYSCALL1 47
+uabi_debug_enabled:
+    mov rax, 47
+    mov rcx, 1
+    int 0x80
+    ret
+
+uabi_set_debug:
+    push rbx
+    mov rax, 47
+    mov rbx, rdi
+    mov rcx, 0
+    int 0x80
+    pop rbx
+    ret
 uabi_kill:      SYSCALL2 48
 uabi_sigaction: SYSCALL2 49
 uabi_sleep:     SYSCALL1 51
+
+uabi_devinfo:   SYSCALL2 54
+uabi_mount:     SYSCALL3 55
+uabi_umount:    SYSCALL1 56

@@ -407,34 +407,34 @@ static int test_phase10() {
 
 // Phase 11: FAT32 File Read
 static int test_phase11() {
-    log_phase_start(11, "FAT32 File Read (/BIN/HELLO64.ELF)");
+    log_phase_start(11, "FAT32 File Read (/BIN/HELLO.ELF)");
     int phase_success = 1;
 
     kabi_partition_t part;
     if (mbr_find_fat32(0, &part) != KABI_SUCCESS || !part.found) {
-        log_fail("11.1", "Read HELLO64.ELF", "No FAT32 partition");
+        log_fail("11.1", "Read HELLO.ELF", "No FAT32 partition");
         return 0;
     }
 
     fat32_mount_t m;
     if (fat32_read_bpb(0, part.start_lba, &m) != KABI_SUCCESS) {
-        log_fail("11.1", "Read HELLO64.ELF", "BPB read failed");
+        log_fail("11.1", "Read HELLO.ELF", "BPB read failed");
         return 0;
     }
 
     fat32_dirent_t bin_dir;
     if (fat32_find_file(0, &m, "BIN", 0, &bin_dir) != KABI_SUCCESS) {
-        log_fail("11.1", "Read HELLO64.ELF", "BIN directory not found");
+        log_fail("11.1", "Read HELLO.ELF", "BIN directory not found");
         return 0;
     }
 
     fat32_dirent_t file;
     uint32_t bin_cluster = (bin_dir.cluster_hi << 16) | bin_dir.cluster_lo;
-    if (fat32_find_file(0, &m, "HELLO64.ELF", bin_cluster, &file) != KABI_SUCCESS) {
-        log_fail("11.1", "Read HELLO64.ELF", "HELLO64.ELF not found in BIN");
+    if (fat32_find_file(0, &m, "HELLO.ELF", bin_cluster, &file) != KABI_SUCCESS) {
+        log_fail("11.1", "Read HELLO.ELF", "HELLO.ELF not found in BIN");
         return 0;
     }
-    log_pass("11.1", "HELLO64.ELF found and metadata read");
+    log_pass("11.1", "HELLO.ELF found and metadata read");
     return phase_success;
 }
 
