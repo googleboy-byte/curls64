@@ -3,6 +3,7 @@
 #include "../cpu/paging.h"
 #ifdef ARCH_X86_64
 #include "../arch/x86_64/cpu/gdt.h"
+#include "../arch/x86_64/acpi/acpi.h"
 #else
 #include "../cpu/gdt.h"
 #endif
@@ -19,6 +20,7 @@ void core_init() {
 #ifdef ARCH_X86_64
     init_paging();
     init_gdt();
+    acpi_parse();
 #else
     init_gdt();
     isr_install();
