@@ -317,7 +317,6 @@ int sys_execve(const char *path, char **argv, registers_t *regs) {
 
     if (kabi_debug_enabled()) {
         char s[20];
-        kprint("[EXEC] Path: "); kprint(path); kprint("\n");
         kprint("[EXEC] Entry: 0x"); hex64_to_ascii((uint64_t)res.entry, s); kprint(s); kprint("\n");
         kprint("[EXEC] Argc: "); int_to_ascii((int)argc, s); kprint(s); kprint("\n");
     }
