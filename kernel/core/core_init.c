@@ -4,6 +4,7 @@
 #ifdef ARCH_X86_64
 #include "../arch/x86_64/cpu/gdt.h"
 #include "../arch/x86_64/acpi/acpi.h"
+#include "../arch/x86_64/apic/lapic.h"
 #else
 #include "../cpu/gdt.h"
 #endif
@@ -21,6 +22,8 @@ void core_init() {
     init_paging();
     init_gdt();
     acpi_parse();
+    lapic_init();
+    register_interrupt_handler(0xFF, lapic_spurious_handler);
 #else
     init_gdt();
     isr_install();
@@ -53,4 +56,8 @@ void core_init() {
     // Interrupts enabled by kernel_main or here?
     // User plan says 'asm volatile("sti")' at the end of core_init.
     irq_restore(0x202);
+
+#ifdef ARCH_X86_64
+    init_lapic_timer();
+#endif
 }

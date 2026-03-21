@@ -14,8 +14,21 @@ isr_t interrupt_handlers[256];
 #define PIC1_COMMAND 0x20
 #define PIC2_COMMAND 0xA0
 #define PIC_EOI      0x20
+#ifdef ARCH_X86_64
+extern int lapic_enabled;
+extern int use_lapic_timer;
+extern void lapic_write(uint32_t reg, uint32_t val);
+#define LAPIC_EOI 0x0B0
+#endif
 
 void send_eoi(uint32_t int_no) {
+#ifdef ARCH_X86_64
+    if (lapic_enabled && (use_lapic_timer || int_no >= 0x40)) {
+        lapic_write(LAPIC_EOI, 0);
+        if (use_lapic_timer && int_no == 32) return; // if we fully swapped, ignore PIC
+        if (int_no >= 0x40) return;
+    }
+#endif
     uint8_t irq = int_no - 32;
     if (irq >= 8) {
         port_byte_out(PIC2_COMMAND, PIC_EOI);
@@ -147,6 +160,11 @@ void isr_install() {
     set_idt_gate(45, (uint64_t)irq13, 0x8E);
     set_idt_gate(46, (uint64_t)irq14, 0x8E);
     set_idt_gate(47, (uint64_t)irq15, 0x8E);
+    extern void isr64(void);
+    extern void isr255(void);
+    set_idt_gate(0x40, (uint64_t)isr64, 0x8E);
+    set_idt_gate(0xFF, (uint64_t)isr255, 0x8E);
+
     set_idt_gate(0x30, (uint64_t)isr80, 0x8E); // Reuse isr80 stub for test (vector 80 decimal → int_no=80)
     set_idt_gate(0x80, (uint64_t)isr128, 0xEE); // Syscall gate gets DPL3 (vector 128 decimal = 0x80)
 #endif
@@ -228,7 +246,7 @@ void irq_handler(registers_t *r) {
         KTRACE1(KTRACE_IRQ_EXIT, r->int_no);
     }
     send_eoi(r->int_no);
-    if (r->int_no == 32){
+    if (r->int_no == 32 || r->int_no == 0x40){
         task_switch(r);
     }
     irq_depth--;

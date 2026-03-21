@@ -120,6 +120,7 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                kernel/arch/x86_64/cpu/gdt_flush64.o64 \
                kernel/arch/x86_64/cpu/gdt.o64 \
                kernel/arch/x86_64/acpi/acpi.o64 \
+               kernel/arch/x86_64/apic/lapic.o64 \
                kernel/core/boot_multiboot2_64.o64 \
                kernel/core/kernel.o64 \
                kernel/core/core_init.o64 \
