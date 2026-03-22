@@ -23,10 +23,9 @@ extern void lapic_write(uint32_t reg, uint32_t val);
 
 void send_eoi(uint32_t int_no) {
 #ifdef ARCH_X86_64
-    if (lapic_enabled && (use_lapic_timer || int_no >= 0x40)) {
+    if (lapic_enabled) {
         lapic_write(LAPIC_EOI, 0);
-        if (use_lapic_timer && int_no == 32) return; // if we fully swapped, ignore PIC
-        if (int_no >= 0x40) return;
+        if (int_no != 32 || use_lapic_timer) return;
     }
 #endif
     uint8_t irq = int_no - 32;

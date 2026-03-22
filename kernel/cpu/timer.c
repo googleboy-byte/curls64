@@ -12,6 +12,7 @@ extern volatile task_t *ready_queue;
 void timer_callback(registers_t *regs) {
     tick++;
     if (current_task) ((task_t*)current_task)->ticks++;
+    get_cpu_local()->timer_ticks++;
 
     /* Drain the head of the sorted sleep queue */
     extern volatile task_t *sleep_queue;

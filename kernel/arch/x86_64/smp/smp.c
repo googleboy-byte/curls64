@@ -23,6 +23,8 @@ extern void hex64_to_ascii(uint64_t n, char *str);
 extern void kprint(const char *str);
 
 volatile uint32_t ap_ready_flags = 0;
+volatile int      smp_tasking_ready = 0;
+static uint64_t   ap_trampoline_stacks[8] = {0}; // trampoline stack_top per AP
 
 static inline uint64_t get_cr3(void) {
     uint64_t cr3;
@@ -51,17 +53,28 @@ void ap_entry(int cpu_id) {
     // Enable LAPIC (Spurious register)
     lapic_write(0xF0, 0x100 | 0xFF);
 
+    // 3. Signal BSP that this AP is ready
+    ap_ready_flags |= (1 << cpu_id);
+
+    // 4. Spin-wait until BSP signals tasking is ready
+    while (!smp_tasking_ready) {
+        asm volatile("pause");
+    }
+
+    // Assign this AP's dedicated idle task
+    extern task_t *get_idle_task_for_cpu(int cpu_id);
+    get_cpu_local()->_current = get_idle_task_for_cpu(cpu_id);
+    asm volatile("" ::: "memory"); // Compiler barrier: ensure _current is written
+
+    // Now safe to start timer — ready_queue exists
     lapic_timer_start_ap();
 
-    // 3. Enable interrupts
+    // 5. Enable interrupts
     extern void set_idt(void);
     set_idt();
     asm volatile("sti");
 
-    // 4. Signal BSP that this AP is ready
-    ap_ready_flags |= (1 << cpu_id);
-
-    // 5. Enter scheduler idle loop
+    // 6. Enter scheduler idle loop
     while (1) {
         asm volatile("hlt");
     }
@@ -69,7 +82,6 @@ void ap_entry(int cpu_id) {
 
 extern mmu_context_t *kernel_directory;
 extern void pmm_clear_frame(uint32_t frame);
-#define PHYSMAP_BASE 0xffff800000000000ULL
 #define TRAMPOLINE_PHYS 0x70000ULL
 #define TRAMPOLINE_VIRT (PHYSMAP_BASE + TRAMPOLINE_PHYS)
 #define BREADCRUMB_PHYS 0x6000ULL
@@ -167,7 +179,7 @@ void smp_start_aps(void) {
         char b[16]; int_to_ascii(*breadcrumb, b); kprint(b); kprint(" (expect CAFE)\n");
 
         if (ap_ready_flags & (1 << cpu_id)) {
-            cpu_local[cpu_id].kstack_top = stack_top;
+            ap_trampoline_stacks[cpu_id] = stack_top;
             char b[16];
             kprint("[SMP] AP ");
             int_to_ascii(cpu_id, b); kprint(b);
@@ -182,3 +194,21 @@ void smp_start_aps(void) {
         }
     }
 }
+
+extern task_t *create_ap_idle_task(int cpu_id, uint64_t stack_top);
+
+void smp_signal_ready(void) {
+    smp_info_t *info = acpi_get_smp_info();
+    for (int i = 0; i < info->ap_count; i++) {
+        int cpu_id = i + 1;
+        if (ap_ready_flags & (1 << cpu_id)) {
+            uint64_t stack_top = ap_trampoline_stacks[cpu_id];
+            create_ap_idle_task(cpu_id, stack_top);
+        }
+    }
+    // Ensure all idle task writes are visible to APs before they unblock
+    asm volatile("mfence" ::: "memory");
+    smp_tasking_ready = 1;
+    kprint("[SMP] Tasking ready -- APs cleared to start timers\n");
+}
+

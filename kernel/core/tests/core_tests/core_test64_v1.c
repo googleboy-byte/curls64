@@ -20,6 +20,9 @@
 #include "../../uabi_helpers.h"
 #include "../../../arch/x86_64/acpi/acpi.h"
 #include "../../../arch/x86_64/apic/lapic.h"
+#include "../../../arch/x86_64/apic/ioapic.h"
+#include "../../../cpu/idt.h"
+#include "../../../cpu/ports.h"
 // Phase success trackers
 static int phase_failed = 0;
 
@@ -760,6 +763,116 @@ static int test_phase17() {
         phase_success = 0;
     }
 
+    // 17.6 smp_tasking_ready set
+    extern volatile int smp_tasking_ready;
+    if (!smp_tasking_ready) {
+        log_fail("17.6", "smp_tasking_ready", "Flag not set");
+        phase_success = 0;
+    } else {
+        log_pass("17.6", "smp_tasking_ready set correctly");
+    }
+
+    return phase_success;
+}
+
+// Phase 18: Interrupt Integrity Tests
+static int test_phase18() {
+    log_phase_start(18, "Interrupt integrity (IOAPIC/LAPIC)");
+    int phase_success = 1;
+
+    // 18.1 LAPIC timer ticking on all online CPUs
+    for (volatile int d = 0; d < 5000000; d++); // delay
+    smp_info_t *info = acpi_get_smp_info();
+    int processor_count = info->ap_count + 1;
+    int all_ticking = 1;
+    for (int i = 0; i < processor_count; i++) {
+        if (cpu_local[i].timer_ticks == 0) all_ticking = 0;
+    }
+    if (all_ticking) {
+        log_pass("18.1", "LAPIC timer ticking on all cores");
+    } else {
+        log_fail("18.1", "LAPIC timer ticking", "Not all cores show timer_ticks > 0");
+        phase_success = 0;
+    }
+
+    // 18.2 I/O APIC mapped and responding
+    uint32_t val = ioapic_read(0x01);
+    uint8_t version = val & 0xFF;
+    if (version == 0xFF || version == 0x00) {
+        log_fail("18.2", "I/O APIC memory map", "Invalid version read");
+        phase_success = 0;
+    } else {
+        char msg[64];
+        char temp[16];
+        memory_set((uint8_t*)msg, 0, sizeof(msg));
+        strcat(msg, "I/O APIC version 0x");
+        hex_to_ascii(version, temp);
+        strcat(msg, temp);
+        strcat(msg, " responding");
+        log_pass("18.2", msg);
+    }
+
+    // 18.3 Systematic IRQ Audit
+    kprint("[ CORE TEST 64 ] Phase 18.3: IRQ routing audit\n");
+    if (irq_registry_verify_all()) {
+        char s[16];
+        kprint("  [ PASS ] 18.3: All ");
+        int_to_ascii(irq_registry_count(), s); kprint(s);
+        kprint(" registered IRQs correct\n");
+    } else {
+        kprint("  [ FAIL ] 18.3: IRQ routing mismatch detected\n");
+        phase_success = 0;
+    }
+
+    // 18.4 PS/2 keyboard controller responsive
+    uint8_t status = port_byte_in(0x64);
+    if (!(status & 0x04)) {
+        log_fail("18.4", "PS/2 controller", "System flag not set (bit 2)");
+        phase_success = 0;
+    } else {
+        char msg[64];
+        char temp[16];
+        memory_set((uint8_t*)msg, 0, sizeof(msg));
+        strcat(msg, "PS/2 status bit 2 set (0x");
+        hex_to_ascii(status, temp);
+        strcat(msg, temp);
+        strcat(msg, ")");
+        log_pass("18.4", msg);
+    }
+
+    // 18.5 IDT vectors have handlers installed for all registered IRQs
+    extern idt_gate_t idt[];
+    int idt_ok = 1;
+    for (int i = 0; i < irq_registry_count(); i++) {
+        irq_registration_t *r = irq_registry_get(i);
+        if (r->should_be_masked) continue;
+
+        uint64_t handler = idt[r->vector].offset_low | (idt[r->vector].offset_mid << 16) | ((uint64_t)idt[r->vector].offset_high << 32);
+        if (handler == 0) {
+            char err[64];
+            memory_set((uint8_t*)err, 0, sizeof(err));
+            strcat(err, "IRQ ");
+            char s[16]; int_to_ascii(r->irq, s); strcat(err, s);
+            strcat(err, " handler at vector ");
+            int_to_ascii(r->vector, s); strcat(err, s);
+            strcat(err, " is NULL");
+            log_fail("18.5", "IDT handlers", err);
+            idt_ok = 0;
+            phase_success = 0;
+        }
+    }
+    // Also check LAPIC timer at 0x40
+    uint64_t handler40 = idt[0x40].offset_low | (idt[0x40].offset_mid << 16) | ((uint64_t)idt[0x40].offset_high << 32);
+    if (handler40 == 0) {
+        log_fail("18.5", "IDT handlers", "LAPIC Timer handler at 0x40 is NULL");
+        idt_ok = 0;
+        phase_success = 0;
+    }
+
+    if (idt_ok) {
+        log_pass("18.5", "All active IRQ and LAPIC Timer IDT handlers verified");
+    }
+
     return phase_success;
 }
 
@@ -784,10 +897,11 @@ void run_core_test64_v1() {
     log_result(15, test_phase15());
     log_result(16, test_phase16());
     log_result(17, test_phase17());
+    log_result(18, test_phase18());
 
     if (!phase_failed) {
         kprint("\n[ CORE TEST 64 ] TEST_CORE64_V1.0: PASSED\n");
-        kprint("x86_64 Core contract intact. (17 phases)\n");
+        kprint("x86_64 Core contract intact. (18 phases)\n");
     } else {
         kprint("\n[ CORE TEST 64 ] TEST_CORE64_V1.0: FAILED\n");
     }

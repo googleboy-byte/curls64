@@ -130,11 +130,11 @@ OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                kernel/arch/x86_64/cpu/gdt.o64 \
                kernel/arch/x86_64/acpi/acpi.o64 \
                kernel/arch/x86_64/apic/lapic.o64 \
+               kernel/arch/x86_64/apic/ioapic.o64 \
                kernel/arch/x86_64/smp/smp.o64 \
                kernel/core/boot_multiboot2_64.o64 \
                kernel/core/kernel.o64 \
                kernel/core/core_init.o64 \
-               kernel/core/cpu_local.o64 \
                kernel/arch/x86_64/mmu/mmu.o64 \
                kernel/cpu/paging.o64 \
                kernel/arch/x86_64/cpu/interrupt64.o64 kernel/cpu/isr.o64 kernel/core/task.o64 kernel/cpu/ports.o64 kernel/cpu/timer.o64 kernel/cpu/idt.o64 \

@@ -5,6 +5,7 @@
 #include "../arch/x86_64/cpu/gdt.h"
 #include "../arch/x86_64/acpi/acpi.h"
 #include "../arch/x86_64/apic/lapic.h"
+#include "../arch/x86_64/apic/ioapic.h"
 #else
 #include "../cpu/gdt.h"
 #endif
@@ -23,6 +24,7 @@ void core_init() {
     init_gdt();
     acpi_parse();
     lapic_init();
+    ioapic_init();
     register_interrupt_handler(0xFF, lapic_spurious_handler);
 #else
     init_gdt();
@@ -46,20 +48,20 @@ void core_init() {
     kprint("64-bit Core Init: GDT, TSS, Paging and PMM Ready.\n");
     isr_install();
     irq_install();
+    irq_restore(0x202);
+
+    init_lapic_timer();
+    extern void smp_start_aps(void);
+    smp_start_aps();
+    
     init_tasking();
+    extern void smp_signal_ready(void);
+    smp_signal_ready();
+    
     init_syscalls();
 #else
     init_tasking();
     init_syscalls();
-#endif
-    
-    // Interrupts enabled by kernel_main or here?
-    // User plan says 'asm volatile("sti")' at the end of core_init.
     irq_restore(0x202);
-
-#ifdef ARCH_X86_64
-    init_lapic_timer();
-    extern void smp_start_aps(void);
-    smp_start_aps();
 #endif
 }

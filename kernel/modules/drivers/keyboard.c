@@ -52,11 +52,26 @@ static int kb_dequeue(char *c) {
     return 1;
 }
 
+volatile uint32_t kb_irq_count = 0;
+
 static void keyboard_callback(void *regs_ptr) {
+    kb_irq_count++;
     registers_t *regs = (registers_t *)regs_ptr;
     /* The PIC leaves us the scancode in port 0x60 */
     uint8_t scancode = port_byte_in(0x60);
     
+    char trace_msg[32], temp[16];
+    for(int _i=0; _i<32; _i++) trace_msg[_i] = 0;
+    // basic copy:
+    trace_msg[0] = '['; trace_msg[1] = 'K'; trace_msg[2] = 'B'; trace_msg[3] = ']';
+    trace_msg[4] = ' '; trace_msg[5] = 's'; trace_msg[6] = 'c'; trace_msg[7] = 'a';
+    trace_msg[8] = 'n'; trace_msg[9] = ':'; trace_msg[10] = ' '; trace_msg[11] = '0';
+    trace_msg[12] = 'x'; trace_msg[13] = '\0';
+    hex_to_ascii(scancode, temp);
+    strcat(trace_msg, temp);
+    strcat(trace_msg, "\n");
+    kprint(trace_msg);
+
     // Caps Lock toggle (0x3A)
     if (scancode == 0x3A) {
         caps_lock = !caps_lock;
@@ -197,7 +212,47 @@ void init_keyboard() {
    kabi_irq_register(1, keyboard_callback); 
 }
 
+static void ps2_wait_input(void) {
+    int timeout = 100000;
+    while ((port_byte_in(0x64) & 0x02) && --timeout);
+}
+
+static void ps2_wait_output(void) {
+    int timeout = 100000;
+    while (!(port_byte_in(0x64) & 0x01) && --timeout);
+}
+
+static void ps2_controller_init(void) {
+    ps2_wait_input();
+    port_byte_out(0x64, 0xAD); 
+    ps2_wait_input();
+    port_byte_out(0x64, 0xA7); 
+
+    while (port_byte_in(0x64) & 0x01) {
+        port_byte_in(0x60);
+    }
+
+    ps2_wait_input();
+    port_byte_out(0x64, 0x20); 
+    ps2_wait_output();
+    uint8_t config = port_byte_in(0x60);
+
+    config |=  0x01; 
+    config &= ~0x10; 
+
+    ps2_wait_input();
+    port_byte_out(0x64, 0x60); 
+    ps2_wait_input();
+    port_byte_out(0x60, config);
+
+    ps2_wait_input();
+    port_byte_out(0x64, 0xAE);
+
+    kprint("[KB] PS/2 controller initialized, IRQ1 enabled\n");
+}
+
 void keyboard_driver_init() {
+    ps2_controller_init();
     init_keyboard();
 }
 

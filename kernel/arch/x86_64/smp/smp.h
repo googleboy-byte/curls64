@@ -8,3 +8,4 @@ void ap_entry(int cpu_id);
 void lapic_send_ipi(uint8_t dest, uint32_t cmd);
 
 extern volatile uint32_t ap_ready_flags;
+extern volatile int      smp_tasking_ready;
