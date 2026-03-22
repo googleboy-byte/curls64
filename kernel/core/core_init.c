@@ -59,5 +59,7 @@ void core_init() {
 
 #ifdef ARCH_X86_64
     init_lapic_timer();
+    extern void smp_start_aps(void);
+    smp_start_aps();
 #endif
 }

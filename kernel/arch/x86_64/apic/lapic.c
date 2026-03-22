@@ -8,6 +8,7 @@
 static volatile uint32_t *lapic_base_virt = NULL;
 int lapic_enabled = 0;
 int use_lapic_timer = 0;
+uint32_t ticks_per_interval = 0;
 
 uint32_t lapic_read(uint32_t reg) {
     if (!lapic_base_virt) return 0;
@@ -24,6 +25,18 @@ void lapic_spurious_handler(registers_t *regs) {
     lapic_write(LAPIC_EOI, 0);
 }
 
+#define LAPIC_VIRT_BASE 0xFFFFA00000100000ULL
+
+void lapic_enable_via_msr(uint64_t phys_base) {
+    uint64_t msr_val = phys_base | (1 << 11); // EN bit
+    asm volatile(
+        "wrmsr"
+        :: "c"(0x1B),
+           "a"((uint32_t)(msr_val & 0xFFFFFFFF)),
+           "d"((uint32_t)(msr_val >> 32))
+    );
+}
+
 void lapic_init(void) {
     // 1. Mask 8259 PIC interrupts to avoid conflicts, EXCEPT IRQ0 for calibration
     port_byte_out(0x21, 0xFE);
@@ -33,14 +46,46 @@ void lapic_init(void) {
     uint64_t phys = smp->lapic_base;
     if (!phys) phys = 0xFEE00000;
     
+    char s[16];
+    
+    uint32_t msr_lo, msr_hi;
+    asm volatile(
+        "rdmsr"
+        : "=a"(msr_lo), "=d"(msr_hi)
+        : "c"(0x1B)
+    );
+    kprint("[LAPIC] IA32_APIC_BASE MSR: hi=0x");
+    hex_to_ascii(msr_hi, s); kprint(s);
+    kprint(" lo=0x");
+    hex_to_ascii(msr_lo, s); kprint(s);
+    kprint("\n");
+
+    lapic_enable_via_msr(phys);
+
+    kprint("[LAPIC] Physical base from ACPI: 0x");
+    hex_to_ascii((uint32_t)phys, s);
+    kprint(s);
+    kprint("\n");
+
     // Map LAPIC MMIO out of the way
-    uint64_t virt = 0xffff800000000000ULL + phys;
-    mmu_map_page(kernel_directory, virt, phys, MMU_WRITABLE);
-    lapic_base_virt = (volatile uint32_t*)virt;
+    mmu_map_page(kernel_directory, LAPIC_VIRT_BASE, phys, MMU_PRESENT | MMU_WRITABLE | MMU_PCD | MMU_PWT);
+    lapic_base_virt = (volatile uint32_t*)LAPIC_VIRT_BASE;
     lapic_enabled = 1;
     
+    kprint("[LAPIC] Mapped 0xFEE00000 -> 0xFFFFA00000100000\n");
+
+    lapic_write(LAPIC_ICR_HIGH, 0x01000000); // target APIC ID 1
+    uint32_t readback = lapic_read(LAPIC_ICR_HIGH);
+    kprint("[LAPIC] ICR_HIGH readback: 0x");
+    hex_to_ascii(readback, s); kprint(s);
+    kprint(" (expect 0x1000000)\n");
+
     // 2. Read BSP APIC ID from LAPIC_ID register
     uint32_t id_reg = lapic_read(LAPIC_ID);
+    kprint("[LAPIC] ID register: 0x");
+    hex_to_ascii(id_reg, s);
+    kprint(s);
+    kprint(" (BSP APIC ID should be 0)\n");
     uint8_t current_apic_id = (uint8_t)(id_reg >> 24);
     
     uint32_t ver_reg = lapic_read(LAPIC_VERSION);
@@ -53,7 +98,6 @@ void lapic_init(void) {
     lapic_write(LAPIC_SVR, 0x100 | 0xFF);
     
     // 5. Print confirmation
-    char s[16];
     kprint("[LAPIC] BSP APIC ID: ");
     int_to_ascii(current_apic_id, s);
     kprint(s);
@@ -84,7 +128,7 @@ void init_lapic_timer(void) {
     // Calculate ticks per 1 interval (assuming interval is 1ms, so ticks_elapsed / 10)
     // Wait, PIT runs at what frequency? Let's check init_timer() frequency.
     // If it's usually 1000Hz, then 10 ticks = 10ms. Ticks per 1ms = ticks_elapsed / 10
-    uint32_t ticks_per_interval = ticks_elapsed / 10;
+    ticks_per_interval = ticks_elapsed / 10;
     if (ticks_per_interval == 0) ticks_per_interval = 10000; // fail-safe fallback
     
     // 2. Configure LAPIC timer LVT

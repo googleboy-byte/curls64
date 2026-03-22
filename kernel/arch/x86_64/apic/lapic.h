@@ -20,6 +20,7 @@ extern int use_lapic_timer;
 
 void lapic_init(void);
 void init_lapic_timer(void);
+void lapic_enable_via_msr(uint64_t phys_base);
 void lapic_write(uint32_t reg, uint32_t val);
 uint32_t lapic_read(uint32_t reg);
 #include "../../../cpu/isr.h"
