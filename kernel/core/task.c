@@ -1000,6 +1000,7 @@ void task_switch(registers_t *regs) {
     }
 
     // Phase 2: Selection of the incoming task
+    spin_lock(&rq_lock);
     task_t *next_task = prev_task;
 
     if (current_scheduler && current_scheduler->pick_next) {
@@ -1017,6 +1018,7 @@ void task_switch(registers_t *regs) {
             if (++rotations > MAX_TASKS + 2) break;
         }
     }
+    spin_unlock(&rq_lock);
 
     // If no other task is ready, just continue with the current one
     if (next_task == prev_task) {

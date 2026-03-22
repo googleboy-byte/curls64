@@ -107,6 +107,14 @@ void cpu_init(int cpu_id) {
     tss_flush(tss_sel);
 
     memory_set((uint8_t*)cpu->kstack_base, 0xCC, KERNEL_STACK_SIZE);
+    
+    // Store pointer to this CPU's local struct in GS base
+    write_gs_base((uint64_t)&cpu_local[cpu_id]);
+    char s[16];
+    kprint("[CPU"); int_to_ascii(cpu_id, s); kprint(s);
+    kprint("] GS base set to cpu_local @ 0x");
+    hex64_to_ascii((uint64_t)&cpu_local[cpu_id], s); kprint(s); kprint("\n");
+            
     kprint("  - [x64] CPU TSS loaded.\n");
 }
 

@@ -95,11 +95,14 @@ trampoline_lm64:
     mov al, 'A'
     out dx, al
 
-    ; Tell BSP we are ready by writing -1 to ap_ready_flags (passed via ap_entry_ptr)
-    mov rbx, [0x70000 + ap_entry_ptr]
-    mov dword [rbx], -1
+    ; Call ap_entry(cpu_id) in C
+    ; RDI already has cpu_id from line 90 (edi)
+    mov rax, [0x70000 + ap_entry_ptr]
+    call rax
 
+    cli
+.hlt:
     hlt
-    jmp $
+    jmp .hlt
 
 trampoline_end:

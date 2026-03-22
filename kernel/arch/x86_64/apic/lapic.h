@@ -18,6 +18,9 @@
 extern int lapic_enabled;
 extern int use_lapic_timer;
 
+extern uint32_t lapic_timer_ticks;
+void lapic_timer_start_ap(void);
+
 void lapic_init(void);
 void init_lapic_timer(void);
 void lapic_enable_via_msr(uint64_t phys_base);

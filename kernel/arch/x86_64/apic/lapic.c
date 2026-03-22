@@ -8,7 +8,7 @@
 static volatile uint32_t *lapic_base_virt = NULL;
 int lapic_enabled = 0;
 int use_lapic_timer = 0;
-uint32_t ticks_per_interval = 0;
+uint32_t lapic_timer_ticks = 0;
 
 uint32_t lapic_read(uint32_t reg) {
     if (!lapic_base_virt) return 0;
@@ -128,8 +128,8 @@ void init_lapic_timer(void) {
     // Calculate ticks per 1 interval (assuming interval is 1ms, so ticks_elapsed / 10)
     // Wait, PIT runs at what frequency? Let's check init_timer() frequency.
     // If it's usually 1000Hz, then 10 ticks = 10ms. Ticks per 1ms = ticks_elapsed / 10
-    ticks_per_interval = ticks_elapsed / 10;
-    if (ticks_per_interval == 0) ticks_per_interval = 10000; // fail-safe fallback
+    lapic_timer_ticks = ticks_elapsed / 10;
+    if (lapic_timer_ticks == 0) lapic_timer_ticks = 10000; // fail-safe fallback
     
     // 2. Configure LAPIC timer LVT
     lapic_write(LAPIC_TIMER_LVT, 0x20040); // periodic | vector 0x40
@@ -138,7 +138,7 @@ void init_lapic_timer(void) {
     lapic_write(LAPIC_TIMER_DIV, 0x3);
     
     // 4. Set initial count to calibrated value
-    lapic_write(LAPIC_TIMER_INIT, ticks_per_interval);
+    lapic_write(LAPIC_TIMER_INIT, lapic_timer_ticks);
     
     // 5. Register vector 0x40 in IDT
     register_interrupt_handler(0x40, timer_callback);
@@ -147,10 +147,17 @@ void init_lapic_timer(void) {
     
     char s[16];
     kprint("[LAPIC] Timer calibrated: ");
-    int_to_ascii(ticks_per_interval, s);
+    int_to_ascii(lapic_timer_ticks, s);
     kprint(s);
     kprint(" ticks per interval\n");
     
     // Fully mask PIC now that calibration is done
     port_byte_out(0x21, 0xFF);
+}
+
+void lapic_timer_start_ap(void) {
+    lapic_write(LAPIC_TIMER_DIV, 0x3);      // divide by 16
+    lapic_write(LAPIC_TIMER_LVT, 0x20040);  // periodic, vector 0x40
+    lapic_write(LAPIC_TIMER_INIT, lapic_timer_ticks);
+    kprint("[AP] LAPIC timer started\n");
 }

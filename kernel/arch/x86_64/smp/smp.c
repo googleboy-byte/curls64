@@ -19,6 +19,7 @@ extern unsigned int build_trampoline_bin_len;
 
 extern void int_to_ascii(int n, char *str);
 extern void hex_to_ascii(uint32_t n, char *str);
+extern void hex64_to_ascii(uint64_t n, char *str);
 extern void kprint(const char *str);
 
 volatile uint32_t ap_ready_flags = 0;
@@ -38,17 +39,19 @@ void ap_entry(int cpu_id) {
     // 1. Initialize this AP's cpu_local
     cpu_init(cpu_id);
 
+    cpu_local_t *me = get_cpu_local();
+    char s[16];
+    kprint("[AP"); int_to_ascii(cpu_id, s); kprint(s);
+    kprint("] get_cpu_local() = 0x"); hex64_to_ascii((uint64_t)me, s); kprint(s);
+    kprint(", id="); int_to_ascii(me->id, s); kprint(s); kprint("\n");
+
     // 2. Initialize LAPIC on this AP
     lapic_enable_via_msr(0xFEE00000);
-    // For now we can call lapic_init() which does LAPIC enabling. Wait, we need to skip PIT calibration.
-    // We already have ticks_per_interval computed on BSP, so we can just set up the APIC timer.
-    lapic_write(LAPIC_TIMER_DIV, 0x3);
-    extern uint32_t ticks_per_interval;
-    lapic_write(LAPIC_TIMER_INIT, ticks_per_interval);
-    lapic_write(LAPIC_TIMER_LVT, 0x40 | 0x20000); // Vector 0x40, Periodic
 
     // Enable LAPIC (Spurious register)
     lapic_write(0xF0, 0x100 | 0xFF);
+
+    lapic_timer_start_ap();
 
     // 3. Enable interrupts
     extern void set_idt(void);
@@ -134,7 +137,7 @@ void smp_start_aps(void) {
         *(uint16_t*)(TRAMPOLINE_VIRT + GDT_OFFSET)     = gdt_ptr.limit;
         *(uint64_t*)(TRAMPOLINE_VIRT + GDT_OFFSET + 2) = gdt_ptr.base;
         *(uint64_t*)(TRAMPOLINE_VIRT + STACK_OFFSET)   = stack_top;
-        *(uint64_t*)(TRAMPOLINE_VIRT + ENTRY_OFFSET)   = (uint64_t)&ap_ready_flags;
+        *(uint64_t*)(TRAMPOLINE_VIRT + ENTRY_OFFSET)   = (uint64_t)ap_entry;
         *(uint32_t*)(TRAMPOLINE_VIRT + CPUID_OFFSET)   = cpu_id;
 
         *((volatile uint16_t*)BREADCRUMB_VIRT) = 0x0000; // Reset breadcrumb
@@ -164,6 +167,7 @@ void smp_start_aps(void) {
         char b[16]; int_to_ascii(*breadcrumb, b); kprint(b); kprint(" (expect CAFE)\n");
 
         if (ap_ready_flags & (1 << cpu_id)) {
+            cpu_local[cpu_id].kstack_top = stack_top;
             char b[16];
             kprint("[SMP] AP ");
             int_to_ascii(cpu_id, b); kprint(b);
