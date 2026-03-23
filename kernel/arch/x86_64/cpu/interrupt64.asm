@@ -70,8 +70,7 @@ isr_common_stub:
     mov rsp, rax
 
 .no_switch:
-    pop gs
-    pop fs
+    add rsp, 16 ; Discard saved gs and fs. Popping them would clear their MSR bases!
     pop rax
     mov es, ax
     pop rax
@@ -134,8 +133,7 @@ irq_common_stub:
     mov rsp, rax
 
 .irq_no_switch:
-    pop gs
-    pop fs
+    add rsp, 16 ; Discard saved gs and fs. Popping them would clear their MSR bases!
     pop rax
     mov es, ax
     pop rax

@@ -9,10 +9,10 @@ uint32_t tick = 0;
 
 extern volatile task_t *ready_queue;
 
-static void timer_callback(registers_t *regs) {
-    (void)regs;
+void timer_callback(registers_t *regs) {
     tick++;
     if (current_task) ((task_t*)current_task)->ticks++;
+    get_cpu_local()->timer_ticks++;
 
     /* Drain the head of the sorted sleep queue */
     extern volatile task_t *sleep_queue;
@@ -23,6 +23,15 @@ static void timer_callback(registers_t *regs) {
         t->sleep_until = 0;
         if (t->state == TASK_WAITING) t->state = TASK_READY;
     }
+
+#ifdef ARCH_X86_64
+    extern int use_lapic_timer;
+    if (use_lapic_timer && regs->int_no == 0x40) {
+        extern void send_eoi(uint32_t);
+        send_eoi(0x40);
+        task_switch(regs);
+    }
+#endif
 }
 
 void init_timer(uint32_t freq) {

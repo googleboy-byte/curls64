@@ -89,6 +89,7 @@ typedef struct cpu_local{
     // irq / nesting state
     uint32_t _irq_depth;
     volatile uint64_t _task_switch_rsp; // ADD THIS
+    volatile uint64_t timer_ticks;
 #ifdef ARCH_X86_64
     tss64_entry_t tss;
 #else
@@ -102,7 +103,7 @@ typedef struct cpu_local{
 } cpu_local_t;
 
 /* Per-CPU context (defined in gdt.c) */
-extern cpu_local_t cpu_local[1];
+extern cpu_local_t cpu_local[];
 
 /* Initializes the tasking system. */
 void init_tasking();

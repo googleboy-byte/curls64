@@ -15,8 +15,9 @@ extern void tss_flush(uint32_t selector);
 gdt_entry64_t gdt_entries[7 + (MAX_CPU * 2)];
 gdt_ptr_t     gdt_ptr;
 
-// For now, we only support one CPU officially in this phase
-cpu_local_t cpu_local[1];
+#define MAX_SMP_CPUS 8
+cpu_local_t cpu_local[MAX_SMP_CPUS];
+volatile uint64_t task_switch_rsp = 0;
 
 static void gdt_set_gate(int32_t num, uint32_t limit, uint8_t access, uint8_t gran) {
     gdt_entries[num].limit_low   = (limit & 0xFFFF);
@@ -54,6 +55,7 @@ void init_gdt() {
     gdt_ptr.base  = (uintptr_t)&gdt_entries;
 
     memory_set((uint8_t*)&gdt_entries, 0, sizeof(gdt_entries));
+    memory_set((uint8_t*)cpu_local, 0, sizeof(cpu_local));
 
     // Null segment
     gdt_set_gate(0, 0, 0, 0);
@@ -88,6 +90,7 @@ void cpu_init(int cpu_id) {
     cpu->id = cpu_id;
     cpu->_current = 0;
     cpu->_irq_depth = 0;
+    cpu->timer_ticks = 0;
     cpu->kstack_base = (virt_addr_t)kmalloc(8192, 4096, 0);
     cpu->kstack_top = cpu->kstack_base + 8192;
     // Set kernel stack for this CPU's TSS
@@ -106,6 +109,14 @@ void cpu_init(int cpu_id) {
     tss_flush(tss_sel);
 
     memory_set((uint8_t*)cpu->kstack_base, 0xCC, KERNEL_STACK_SIZE);
+    
+    // Store pointer to this CPU's local struct in GS base
+    write_gs_base((uint64_t)&cpu_local[cpu_id]);
+    char s[16];
+    kprint("[CPU"); int_to_ascii(cpu_id, s); kprint(s);
+    kprint("] GS base set to cpu_local @ 0x");
+    hex64_to_ascii((uint64_t)&cpu_local[cpu_id], s); kprint(s); kprint("\n");
+            
     kprint("  - [x64] CPU TSS loaded.\n");
 }
 

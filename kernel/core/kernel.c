@@ -59,10 +59,10 @@ void kernel_main(void) {
     kprint("[BOOT] x86_64 Sacred Core stabilized. Porting vision: Phase 8.\n");
     
     // 1. Initialize core drivers
-    screen_driver_init();
-    keyboard_driver_init();
     uart_init();
     kabi_irq_register(4, uart_callback); // IRQ4: Serial COM1
+    screen_driver_init();
+    keyboard_driver_init();
     
     // 2. Initialize core modules
     sched_rr_init();

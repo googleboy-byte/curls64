@@ -106,6 +106,15 @@ OBJ64_CORE = $(filter-out kernel/core/boot_multiboot2.o64 kernel/core/tests/core
 kernel/arch/x86_64/boot/multiboot2_entry64.o64: kernel/arch/x86_64/boot/multiboot2_entry64.asm
 	nasm $< -f elf64 -o $@
 
+build/trampoline.bin: kernel/arch/x86_64/smp/trampoline.asm | $(BUILD_DIR)
+	nasm -f bin -o $@ $<
+
+kernel/arch/x86_64/smp/trampoline_blob.h: build/trampoline.bin
+	xxd -i $< > $@
+
+kernel/arch/x86_64/smp/smp.o64: kernel/arch/x86_64/smp/smp.c kernel/arch/x86_64/smp/trampoline_blob.h
+	${CC} ${CFLAGS64} -c $< -o $@
+
 kernel/arch/x86_64/mmu/mmu.o64: kernel/arch/x86_64/mmu/mmu.c
 	${CC} ${CFLAGS64} -c $< -o $@
 
@@ -119,10 +128,13 @@ $(BUILD_DIR)/kernel64.elf: kernel/arch/x86_64/boot/multiboot2_entry64.o64 kernel
 OBJ64_VERIFY = kernel/arch/x86_64/boot/multiboot2_entry64.o64 \
                kernel/arch/x86_64/cpu/gdt_flush64.o64 \
                kernel/arch/x86_64/cpu/gdt.o64 \
+               kernel/arch/x86_64/acpi/acpi.o64 \
+               kernel/arch/x86_64/apic/lapic.o64 \
+               kernel/arch/x86_64/apic/ioapic.o64 \
+               kernel/arch/x86_64/smp/smp.o64 \
                kernel/core/boot_multiboot2_64.o64 \
                kernel/core/kernel.o64 \
                kernel/core/core_init.o64 \
-               kernel/core/cpu_local.o64 \
                kernel/arch/x86_64/mmu/mmu.o64 \
                kernel/cpu/paging.o64 \
                kernel/arch/x86_64/cpu/interrupt64.o64 kernel/cpu/isr.o64 kernel/core/task.o64 kernel/cpu/ports.o64 kernel/cpu/timer.o64 kernel/cpu/idt.o64 \
@@ -314,7 +326,7 @@ run-grub64-verify-debug: build/kernel64_verify.elf $(IMG) | $(LOG_DIR) $(ISO_DIR
 	cp $(BUILD_DIR)/kernel64_verify.elf $(ISO_DIR)/boot/kernel.elf
 	printf 'set timeout=0\nset default=0\nmenuentry \"Curls x64 Verify Debug\" {\n  multiboot2 /boot/kernel.elf\n  boot\n}\n' > $(ISO_DIR)/boot/grub/grub.cfg
 	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
-	qemu-system-x86_64 -cdrom $(ISO_IMG) -hda $(IMG) -boot d -m 256 -nographic -d int,cpu_reset -D $(LOG_DIR)/qemu-verify-debug.log 2>&1 | tee $(LOG_DIR)/qemu-verify-serial-debug.log
+	qemu-system-x86_64 -cdrom $(ISO_IMG) -hda $(IMG) -boot d -m 256 -smp 4 -nographic -d int,cpu_reset,trace:apic_deliver_irq -D $(LOG_DIR)/qemu-verify-debug.log 2>&1 | tee $(LOG_DIR)/qemu-verify-serial-debug.log
 
 live-usb: iso
 	sudo FORCE=$(FORCE) bash scripts/make_live_usb.sh $(ISO_IMG)

@@ -15,11 +15,21 @@ int round_robin_pick_next(kabi_task_t **out) {
         return KABI_SUCCESS;
     }
 
-    task_t *next_task = current_task->next ? (task_t*)current_task->next : (task_t*)ready_queue;
+    task_t *next_task;
+    if (!current_task) {
+        next_task = (task_t*)ready_queue;
+    } else {
+        next_task = current_task->next ? (task_t*)current_task->next : (task_t*)ready_queue;
+    }
 
-    while (next_task->state != TASK_READY && next_task != (task_t*)current_task) {
+    while (next_task && next_task->state != TASK_READY && next_task != (task_t*)current_task) {
         next_task = next_task->next;
         if (!next_task) next_task = (task_t*)ready_queue;
+    }
+
+    if (!next_task) {
+        *out = (kabi_task_t*)current_task;
+        return KABI_SUCCESS;
     }
 
     *out = (kabi_task_t*)next_task;

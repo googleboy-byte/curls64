@@ -5,7 +5,6 @@
 #include "../../libc/mem.h"
 #include "../cpu/paging.h"
 #include "../../libc/string.h"
-#include "../cpu/gdt.h"
 #include "syscall_dispatch.h"
 #include "../ktrace/ktrace.h"
 
@@ -25,6 +24,40 @@ volatile task_t *sleep_queue = 0;
 static spinlock_t pid_lock = SPINLOCK_INIT;
 static spinlock_t rq_lock = SPINLOCK_INIT;
 static spinlock_t sq_lock = SPINLOCK_INIT;
+
+static task_t *cpu_idle_tasks[MAX_CPU] = {0};
+
+void register_cpu_idle_task(int cpu_id, task_t *idle) {
+    cpu_idle_tasks[cpu_id] = idle;
+}
+
+task_t *get_idle_task_for_cpu(int cpu_id) {
+    return cpu_idle_tasks[cpu_id];
+}
+
+task_t *get_idle_task(void) {
+    return cpu_idle_tasks[0];
+}
+
+task_t *create_ap_idle_task(int cpu_id, uint64_t stack_top) {
+    task_t *idle = (task_t*)kmalloc(sizeof(task_t), 16, 0);
+    memory_set((uint8_t*)idle, 0, sizeof(task_t));
+    idle->kernel_stack      = stack_top;
+    idle->kernel_stack_base = stack_top - 8192;
+    idle->state    = TASK_READY;
+    idle->id       = 1000 + cpu_id;
+    idle->page_directory = kernel_directory;
+    idle->magic = TASK_MAGIC;
+    // DO NOT add to ready_queue
+    // AP idle tasks are private to their CPU
+    register_cpu_idle_task(cpu_id, idle);
+    
+    char buf[16], buf2[16];
+    int_to_ascii(idle->id, buf);
+    int_to_ascii(cpu_id, buf2);
+    kprint("[SMP] Created idle task PID "); kprint(buf); kprint(" for CPU "); kprint(buf2); kprint("\n");
+    return idle;
+}
 
 void kabi_scheduler_register(kabi_scheduler_ops_t *ops) {
     if (!ops) return;
@@ -166,6 +199,10 @@ void idle_task(void) {
 
 void assert_on_kstack(registers_t *regs) {
     if (!current_task) return;
+    // AP idle tasks have CPU-private stacks managed separately
+    // The standard stack bounds check does not apply to them.
+    // Also handle id==0 which means _current was not yet assigned.
+    if (current_task->id == 0 || current_task->id >= 1000) return;
     
     uintptr_t addr = (uintptr_t)regs;
     
@@ -240,6 +277,7 @@ void init_tasking() {
 
     // Create the idle task
     task_t *idle = create_kernel_task(idle_task);
+    register_cpu_idle_task(0, idle);
     
     char s_base[20], s_top[20];
     hex64_to_ascii(idle->kernel_stack_base, s_base);
@@ -956,21 +994,33 @@ void kill_foreground_processes() {
 
 
 void task_switch(registers_t *regs) {
-    if (!ready_queue) panic("READY QUEUE NULL");
+    if (!current_task) return;  // AP not yet assigned a task
+    if (!ready_queue) return;
 
-    // Consistency Check: current_task must be in ready_queue
-    task_t *t = (task_t*)ready_queue;
-    int seen_current = 0;
-    int count = 0;
-    do {
-        validate_task(t);
-        // guardrail
-        if (++count > MAX_TASKS + 2) panic("READY QUEUE LOOP CORRUPTION");
-        if (t == current_task) seen_current = 1;
-        t = t->next;
-    } while (t && t != ready_queue);
+    // Consistency Check: current_task must be in ready_queue (if it exists)
+    int seen_current = (current_task == 0);
+    if (current_task) {
+        task_t *t = (task_t*)ready_queue;
+        int count = 0;
+        do {
+            validate_task(t);
+            // guardrail
+            if (++count > MAX_TASKS + 2) panic("READY QUEUE LOOP CORRUPTION");
+            if (t == current_task) seen_current = 1;
+            t = t->next;
+        } while (t && t != ready_queue);
+    }
 
-    if (!seen_current) panic("CURRENT TASK NOT IN READY QUEUE");
+    if (!seen_current) {
+        // Per-CPU idle tasks are not in the ready_queue by design.
+        // Also handle id==0 which means _current was not yet assigned
+        // (address 0 is readable via identity map, giving id=0).
+        if (current_task->id == 0 || current_task->id >= 1000) {
+            // AP idle/uninitialized task — not in queue, return safely.
+            return;
+        }
+        panic("CURRENT TASK NOT IN READY QUEUE");
+    }
 
     if (irq_depth > 1) {
 #ifdef KABI_DEBUG
@@ -1000,6 +1050,7 @@ void task_switch(registers_t *regs) {
     }
 
     // Phase 2: Selection of the incoming task
+    spin_lock(&rq_lock);
     task_t *next_task = prev_task;
 
     if (current_scheduler && current_scheduler->pick_next) {
@@ -1017,6 +1068,7 @@ void task_switch(registers_t *regs) {
             if (++rotations > MAX_TASKS + 2) break;
         }
     }
+    spin_unlock(&rq_lock);
 
     // If no other task is ready, just continue with the current one
     if (next_task == prev_task) {
