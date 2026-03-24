@@ -876,6 +876,77 @@ static int test_phase18() {
     return phase_success;
 }
 
+// Phase 20: Syscall pointer validation (UABI_VALIDATE_PTR range check)
+#include "../../abi_validate.h"  /* USER_ADDR_MAX */
+static int test_phase20() {
+    log_phase_start(20, "Syscall pointer validation");
+    int phase_success = 1;
+
+    /* Helper macro: test if an address would be rejected by UABI_VALIDATE_PTR.
+     * We can't use the macro directly (needs regs + goto syscall_done),
+     * so we replicate the validation logic inline. */
+    #define IS_BAD_USER_PTR(p) \
+        ((!(p)) || ((uint64_t)(uintptr_t)(p) >= USER_ADDR_MAX))
+
+    /* 20.1: NULL pointer rejected */
+    {
+        void *p = (void*)0;
+        if (IS_BAD_USER_PTR(p)) {
+            log_pass("20.1", "NULL pointer rejected by UABI_VALIDATE_PTR");
+        } else {
+            log_fail("20.1", "NULL pointer", "Should have been rejected");
+            phase_success = 0;
+        }
+    }
+
+    /* 20.2: Kernel address rejected (0xFFFF800000000000) */
+    {
+        void *p = (void*)0xFFFF800000000000ULL;
+        if (IS_BAD_USER_PTR(p)) {
+            log_pass("20.2", "Kernel address rejected (0xFFFF800000000000)");
+        } else {
+            log_fail("20.2", "Kernel address", "Should have been rejected");
+            phase_success = 0;
+        }
+    }
+
+    /* 20.3: PHYSMAP address rejected (0xFFFF800000001000) */
+    {
+        void *p = (void*)0xFFFF800000001000ULL;
+        if (IS_BAD_USER_PTR(p)) {
+            log_pass("20.3", "PHYSMAP address rejected (0xFFFF800000001000)");
+        } else {
+            log_fail("20.3", "PHYSMAP address", "Should have been rejected");
+            phase_success = 0;
+        }
+    }
+
+    /* 20.4: Valid user address accepted (0x8001000) */
+    {
+        void *p = (void*)0x8001000ULL;
+        if (!IS_BAD_USER_PTR(p)) {
+            log_pass("20.4", "Valid user address accepted (0x8001000)");
+        } else {
+            log_fail("20.4", "Valid user address", "Should have been accepted");
+            phase_success = 0;
+        }
+    }
+
+    /* 20.5: LAPIC MMIO address rejected (0xFFFFA00000100000) */
+    {
+        void *p = (void*)0xFFFFA00000100000ULL;
+        if (IS_BAD_USER_PTR(p)) {
+            log_pass("20.5", "LAPIC MMIO address rejected (0xFFFFA00000100000)");
+        } else {
+            log_fail("20.5", "LAPIC MMIO address", "Should have been rejected");
+            phase_success = 0;
+        }
+    }
+
+    #undef IS_BAD_USER_PTR
+    return phase_success;
+}
+
 void run_core_test64_v1() {
     kprint("\n[ CORE TEST 64 ] Running TEST_CORE64_V1.0...\n");
     phase_failed = 0;
@@ -898,10 +969,11 @@ void run_core_test64_v1() {
     log_result(16, test_phase16());
     log_result(17, test_phase17());
     log_result(18, test_phase18());
+    log_result(20, test_phase20());
 
     if (!phase_failed) {
         kprint("\n[ CORE TEST 64 ] TEST_CORE64_V1.0: PASSED\n");
-        kprint("x86_64 Core contract intact. (18 phases)\n");
+        kprint("x86_64 Core contract intact. (19 phases)\n");
     } else {
         kprint("\n[ CORE TEST 64 ] TEST_CORE64_V1.0: FAILED\n");
     }

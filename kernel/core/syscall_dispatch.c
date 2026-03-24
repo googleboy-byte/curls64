@@ -87,6 +87,10 @@ static void syscall_handler(registers_t *regs) {
         REGS_SYSNO(regs) = sys_fork(regs);
     } else if (syscall_num == 31) { /* UABI_EXEC */
         UABI_VALIDATE_PTR(REGS_ARG1(regs), syscall_num);
+        /* argv (arg2) may be NULL (no arguments), validate only if provided */
+        if (REGS_ARG2(regs)) {
+            UABI_VALIDATE_PTR(REGS_ARG2(regs), syscall_num);
+        }
         if (kabi_debug_enabled()) {
             char s[16]; hex_to_ascii(current_task->id, s);
             kprint("[EXEC] PID 0x"); kprint(s);

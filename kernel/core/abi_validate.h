@@ -134,17 +134,31 @@ static inline void _validate_print_num(int n) {
  * ╚══════════════════════════════════════════════════════════════╝ */
 
 /**
- * Validate a userspace pointer is non-NULL.
- * On failure: prints diagnostic, sets eax to error, continues to end of handler.
+ * Valid user address boundary.
+ * Any pointer >= this value is in kernel space and MUST be rejected.
+ * This prevents user processes from tricking syscalls into reading/writing
+ * kernel memory by passing kernel-space addresses as arguments.
+ */
+#define USER_ADDR_MAX 0xFFFF800000000000ULL
+
+/**
+ * Validate a userspace pointer is non-NULL AND within user address space.
+ * Rejects: NULL pointers, kernel-space addresses (>= USER_ADDR_MAX).
+ * On failure: prints diagnostic, sets return to -EINVAL, jumps to syscall_done.
  * Must be used inside syscall_handler where `regs` is available.
  */
 #define UABI_VALIDATE_PTR(ptr, syscall_num)                            \
     do {                                                                \
-        if (!(ptr)) {                                                   \
+        if (!(ptr) ||                                                   \
+            (uint64_t)(uintptr_t)(ptr) >= USER_ADDR_MAX) {             \
             kprint("[VALIDATE FAIL] syscall ");                         \
             _validate_print_num(syscall_num);                           \
-            kprint(": NULL pointer '" #ptr "'\n");                      \
-            REGS_RET(regs) = (uintptr_t)(-1);                                 \
+            kprint(": bad user ptr '" #ptr "' = 0x");                  \
+            { char _vbuf[20];                                           \
+              hex_to_ascii((uint64_t)(uintptr_t)(ptr), _vbuf);         \
+              kprint(_vbuf); }                                          \
+            kprint("\n");                                               \
+            REGS_RET(regs) = (uintptr_t)(-22);                         \
             goto syscall_done;                                          \
         }                                                               \
     } while (0)
