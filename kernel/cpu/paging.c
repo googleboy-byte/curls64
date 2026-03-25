@@ -134,6 +134,64 @@ void pmm_reserve_early_memory() {
     }
 }
 
+#define PMM_OOM_SAFE_RESERVE 512
+
+int pmm_test_oom(void) {
+    /* Step 1: Count free frames */
+    pmm_stats_t stats;
+    get_pmm_stats(&stats);
+    uint32_t free_count = (uint32_t)stats.free_frames;
+
+    if (free_count <= PMM_OOM_SAFE_RESERVE) {
+        kprint("[PMM OOM TEST] Already low on frames, skipping\n");
+        return -1;
+    }
+
+    /* Step 2: Allocate (free_count - SAFE_RESERVE) frames */
+    uint32_t to_alloc = free_count - PMM_OOM_SAFE_RESERVE;
+    uint32_t *allocated = (uint32_t*)kmalloc(
+        (size_t)to_alloc * sizeof(uint32_t), 0, 0);
+    if (!allocated) {
+        kprint("[PMM OOM TEST] kmalloc failed for tracking array\n");
+        return -1;
+    }
+
+    uint32_t count = 0;
+    while (count < to_alloc) {
+        uint32_t f = pmm_first_free();
+        if (f == (uint32_t)-1) break;
+        pmm_set_frame(f);
+        allocated[count++] = f;
+    }
+
+    /* Step 3: Verify near-OOM state */
+    pmm_stats_t after;
+    get_pmm_stats(&after);
+    int near_oom = ((uint32_t)after.free_frames <= PMM_OOM_SAFE_RESERVE);
+
+    /* Step 4: Free ALL allocated frames immediately */
+    for (uint32_t i = 0; i < count; i++) {
+        pmm_clear_frame(allocated[i]);
+    }
+    kfree(allocated);
+
+    /* Step 5: Verify recovery */
+    pmm_stats_t recovered;
+    get_pmm_stats(&recovered);
+    int recovered_ok = ((uint32_t)recovered.free_frames >= free_count - 10);
+
+    char s2[20];
+    kprint("[PMM OOM TEST] allocated=");
+    int_to_ascii(count, s2); kprint(s2);
+    kprint(" near_oom=");
+    int_to_ascii(near_oom, s2); kprint(s2);
+    kprint(" recovered_frames=");
+    int_to_ascii((int)recovered.free_frames, s2); kprint(s2);
+    kprint("\n");
+
+    return (near_oom && recovered_ok) ? 1 : 0;
+}
+
 void pmm_init_from_mmap() {
     kprint("  - PMM Initializing from Multiboot2 memory map...\n");
     uint64_t max_phys = 0x8000000; // 128MB fallback
@@ -317,7 +375,15 @@ void page_fault(registers_t *regs) {
 #endif
             if (frame_get_ref(old_frame / 0x1000) > 1) {
                 uint32_t new_frame = pmm_first_free();
-                if (new_frame == (uint32_t)-1) panic("COW: Out of physical memory");
+                if (new_frame == (uint32_t)-1) {
+                    char _s[32];
+                    kprint("[MM] OOM: COW fault pid ");
+                    int_to_ascii(((task_t*)current_task)->id, _s); kprint(_s);
+                    kprint(" addr 0x"); hex64_to_ascii(faulting_address, _s); kprint(_s);
+                    kprint(" -- sending SIGKILL\n");
+                    task_deliver_signal((task_t*)current_task, SIGKILL);
+                    return;
+                }
                 uintptr_t new_phys = (uintptr_t)new_frame * 0x1000;
                 memory_copy((uint8_t*)(PHYSMAP_BASE + old_frame), (uint8_t*)(PHYSMAP_BASE + new_phys), 0x1000);
                 frame_remove_ref(old_frame / 0x1000);

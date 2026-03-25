@@ -122,5 +122,6 @@ extern page_directory_t *kernel_directory;
 extern int pmm_is_ready;
 extern uint64_t total_frames;
 void pmm_reserve_early_memory();
+int pmm_test_oom(void);
 
 #endif
