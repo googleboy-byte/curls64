@@ -641,8 +641,34 @@ static void history_add(const char *cmd) {
     }
 }
 
+// Helper: redraw from cursor position to end of buffer, then reposition cursor
+static void redraw_from_cur(const char *buf, int cur, int len) {
+    // Print everything from cur to len
+    for (int i = cur; i < len; i++) {
+        char s[2] = {buf[i], '\0'};
+        ulib_print(s);
+    }
+    // Print a space to erase any leftover character (e.g. after delete)
+    ulib_print(" ");
+    // Move cursor back to cur position: (len - cur + 1) backspaces
+    for (int i = 0; i < len - cur + 1; i++) {
+        ulib_print("\b");
+    }
+}
+
+// Helper: clear entire line from screen and reset cursor/len
+static void clear_line(const char *buf, int cur, int len) {
+    // Move cursor to start of input
+    for (int i = 0; i < cur; i++) ulib_print("\b");
+    // Overwrite everything with spaces
+    for (int i = 0; i < len; i++) ulib_print(" ");
+    // Move back to start
+    for (int i = 0; i < len; i++) ulib_print("\b");
+}
+
 static void sh_readline(char *buf, int max) {
-    int pos = 0;
+    int cur = 0; // Cursor position within buffer
+    int len = 0; // Total characters in buffer
     history_current = history_count;
     char current_input[256] = "";
 
@@ -650,44 +676,102 @@ static void sh_readline(char *buf, int max) {
         int c = uabi_getc();
         if (c == '\n' || c == '\r') {
             ulib_print("\n");
-            buf[pos] = '\0';
+            buf[len] = '\0';
             break;
+
         } else if (c == 0x08 || c == 0x7F) { // Backspace
-            if (pos > 0) {
-                pos--;
-                ulib_print("\b \b");
+            if (cur > 0) {
+                // Shift buffer left from cur
+                for (int i = cur - 1; i < len - 1; i++)
+                    buf[i] = buf[i + 1];
+                cur--;
+                len--;
+                buf[len] = '\0';
+                ulib_print("\b");
+                redraw_from_cur(buf, cur, len);
             }
+
+        } else if (c == UABI_KEY_LEFT) {
+            if (cur > 0) {
+                cur--;
+                ulib_print("\b");
+            }
+
+        } else if (c == UABI_KEY_RIGHT) {
+            if (cur < len) {
+                char s[2] = {buf[cur], '\0'};
+                ulib_print(s);
+                cur++;
+            }
+
+        } else if (c == UABI_KEY_CTRL_LEFT) {
+            // Skip spaces backward, then skip word backward
+            while (cur > 0 && buf[cur - 1] == ' ') {
+                cur--;
+                ulib_print("\b");
+            }
+            while (cur > 0 && buf[cur - 1] != ' ') {
+                cur--;
+                ulib_print("\b");
+            }
+
+        } else if (c == UABI_KEY_CTRL_RIGHT) {
+            // Skip word forward, then skip spaces forward
+            while (cur < len && buf[cur] != ' ') {
+                char s[2] = {buf[cur], '\0'};
+                ulib_print(s);
+                cur++;
+            }
+            while (cur < len && buf[cur] == ' ') {
+                char s[2] = {buf[cur], '\0'};
+                ulib_print(s);
+                cur++;
+            }
+
         } else if (c == UABI_KEY_UP) {
             if (history_current > 0) {
                 if (history_current == history_count) {
-                    buf[pos] = '\0';
+                    buf[len] = '\0';
                     ulib_strcpy(current_input, buf);
                 }
                 history_current--;
-                // Clear line
-                while (pos > 0) { ulib_print("\b \b"); pos--; }
+                clear_line(buf, cur, len);
                 ulib_strcpy(buf, history[history_current]);
-                pos = ulib_strlen(buf);
-                if (pos > 0) ulib_print(buf);
+                len = ulib_strlen(buf);
+                cur = len;
+                if (len > 0) ulib_print(buf);
             }
+
         } else if (c == UABI_KEY_DOWN) {
             if (history_current < history_count) {
                 history_current++;
-                // Clear line
-                while (pos > 0) { ulib_print("\b \b"); pos--; }
+                clear_line(buf, cur, len);
                 if (history_current == history_count) {
                     ulib_strcpy(buf, current_input);
                 } else {
                     ulib_strcpy(buf, history[history_current]);
                 }
-                pos = ulib_strlen(buf);
-                if (pos > 0) ulib_print(buf);
+                len = ulib_strlen(buf);
+                cur = len;
+                if (len > 0) ulib_print(buf);
             }
+
         } else if (c >= 32 && c <= 126) {
-            if (pos < max - 1) {
-                buf[pos++] = (char)c;
+            if (len < max - 1) {
+                // Shift buffer right from cur to make room
+                for (int i = len; i > cur; i--)
+                    buf[i] = buf[i - 1];
+                buf[cur] = (char)c;
+                len++;
+                buf[len] = '\0';
+                // Print inserted char (advances cursor)
                 char s[2] = {(char)c, '\0'};
                 ulib_print(s);
+                cur++;
+                // If we inserted mid-line, redraw the rest
+                if (cur < len) {
+                    redraw_from_cur(buf, cur, len);
+                }
             }
         }
     }
