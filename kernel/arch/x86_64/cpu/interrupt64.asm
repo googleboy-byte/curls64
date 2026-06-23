@@ -1,6 +1,10 @@
 [extern isr_handler]
 [extern irq_handler]
-[extern task_switch_rsp]
+
+; Per-CPU task_switch_rsp offset within cpu_local_t, accessed via GS base.
+; Must match offsetof(cpu_local_t, _task_switch_rsp) — guarded by
+; _Static_assert in cpu_local_offsets.h.
+%define CPU_LOCAL_TASK_SWITCH_RSP 40
 
 ; Common ISR code
 isr_common_stub:
@@ -62,11 +66,12 @@ isr_common_stub:
     cli
 
     ; Handle task switch if requested (needed for schedule() in UABI_EXIT etc.)
-    mov rax, [rel task_switch_rsp]
+    ; Per-CPU: read this CPU's _task_switch_rsp via GS base
+    mov rax, [gs:CPU_LOCAL_TASK_SWITCH_RSP]
     test rax, rax
     jz .no_switch
     
-    mov qword [rel task_switch_rsp], 0
+    mov qword [gs:CPU_LOCAL_TASK_SWITCH_RSP], 0
     mov rsp, rax
 
 .no_switch:
@@ -125,11 +130,12 @@ irq_common_stub:
     cld
     call irq_handler
 
-    mov rax, [rel task_switch_rsp]
+    ; Per-CPU: read this CPU's _task_switch_rsp via GS base
+    mov rax, [gs:CPU_LOCAL_TASK_SWITCH_RSP]
     test rax, rax
     jz .irq_no_switch
     
-    mov qword [rel task_switch_rsp], 0
+    mov qword [gs:CPU_LOCAL_TASK_SWITCH_RSP], 0
     mov rsp, rax
 
 .irq_no_switch:

@@ -1123,9 +1123,8 @@ void task_switch(registers_t *regs) {
     }
     if (current_task->user_esp & 7) panic("ESP NOT 64-BIT ALIGNED (Restore)");
 
-    // Inform assembly stub of the new stack pointer
-    task_switch_rsp = current_task->user_esp;
-    get_cpu_local()->_task_switch_rsp = task_switch_rsp;
+    // Inform assembly stub of the new stack pointer (per-CPU via GS base)
+    get_cpu_local()->_task_switch_rsp = current_task->user_esp;
 }
 
 void schedule(registers_t *regs) {

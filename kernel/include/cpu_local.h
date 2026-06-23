@@ -4,8 +4,6 @@
 // Defined in gdt.c — array of per-CPU structs, currently size 1
 extern cpu_local_t cpu_local[];
 
-// task_switch_rsp: real global for asm visibility, macro for C consistency
-extern volatile uint64_t task_switch_rsp;
 
 static inline void write_gs_base(uint64_t val) {
     asm volatile(

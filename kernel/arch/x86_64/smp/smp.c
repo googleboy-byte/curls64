@@ -67,13 +67,9 @@ ack:
     // 3. EOI to LAPIC
     lapic_write(0x0B0, 0); // LAPIC_EOI
 
-    // 4. CRITICAL: Neutralize global task_switch_rsp before returning.
-    // isr_common_stub checks this global AFTER isr_handler returns.
-    // Without this, an AP returning from this IPI can steal the BSP's
-    // pending task switch, corrupting both stacks and causing a GPF.
-    // TLB shootdown handlers must NEVER trigger a task switch on APs.
-    extern volatile uint64_t task_switch_rsp;
-    task_switch_rsp = 0;
+    // NOTE: No need to neutralize task_switch_rsp here — it is now per-CPU
+    // (read via GS base in assembly), so an AP can never steal the BSP's
+    // pending task switch.
 }
 
 #define SHOOTDOWN_TIMEOUT 50000000ULL  // ~50M iterations, rough safety net
