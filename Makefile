@@ -328,6 +328,12 @@ run-grub64-verify-debug: build/kernel64_verify.elf $(IMG) | $(LOG_DIR) $(ISO_DIR
 	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
 	qemu-system-x86_64 -cdrom $(ISO_IMG) -hda $(IMG) -boot d -m 256 -smp 4 -nographic -d int,cpu_reset,trace:apic_deliver_irq -D $(LOG_DIR)/qemu-verify-debug.log 2>&1 | tee $(LOG_DIR)/qemu-verify-serial-debug.log
 
+docker64:
+	docker compose run curls-os-dev make run-grub64-verify
+
+docker64-debug:
+	docker compose run curls-os-dev make run-grub64-verify-debug
+
 live-usb: iso
 	sudo FORCE=$(FORCE) bash scripts/make_live_usb.sh $(ISO_IMG)
 

@@ -101,6 +101,16 @@ static void expand_variables(char *line) {
     ulib_strcpy(line, expanded);
 }
 
+// Signal handler for SIGINT (Ctrl+C)
+static void sh_handle_sigint(int sig) {
+    (void)sig;
+    // Just return to the shell loop. 
+    // If waiting for a child, the wait syscall will return.
+    ulib_print("\n");
+    // We don't call print_prompt() here because common practice is to 
+    // let the main loop handle the next prompt after wait returns.
+}
+
 // Helper: Print prompt
 static void print_prompt() {
 #ifdef ARCH_X86_64
@@ -803,6 +813,10 @@ void _start(int argc, char **argv) {
     
     // Initialize $?
     set_sh_var("?", "0");
+    
+    // Register SIGINT handler to prevent shell from exiting on Ctrl+C
+    // KABI_SIGINT = 2
+    uabi_sigaction(2, sh_handle_sigint);
 
     if (argc > 1) {
         // Script mode

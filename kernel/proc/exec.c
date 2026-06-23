@@ -49,10 +49,10 @@ static virt_addr_t build_user_stack(page_directory_t *pd, char **argv, virt_addr
 #ifdef ARCH_X86_64
         if (caller_is_32bit) {
             uint32_t *argv32 = (uint32_t*)argv;
-            while (argv32[argc]) argc++;
+            while (argv32 && argv32[argc]) argc++;
         } else {
 #endif
-            while (argv[argc]) argc++;
+            while (argv && argv[argc]) argc++;
 #ifdef ARCH_X86_64
         }
 #endif
@@ -70,6 +70,7 @@ static virt_addr_t build_user_stack(page_directory_t *pd, char **argv, virt_addr
             arg_str = (char*)(uintptr_t)(((uint32_t*)argv)[i]);
         }
 #endif
+        if (!arg_str) continue; // Skip NULL arguments
         size_t len = strlen(arg_str) + 1;
         sp -= len;
         
@@ -275,10 +276,10 @@ int sys_execve(const char *path, char **argv, registers_t *regs) {
 #ifdef ARCH_X86_64
         if (caller_is_32bit) {
             uint32_t *argv32 = (uint32_t*)argv;
-            while (argv32[argc]) argc++;
+            while (argv32 && argv32[argc]) argc++;
         } else {
 #endif
-            while (argv[argc]) argc++;
+            while (argv && argv[argc]) argc++;
 #ifdef ARCH_X86_64
         }
 #endif

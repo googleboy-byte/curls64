@@ -804,6 +804,7 @@ void task_deliver_signal(struct task_struct *t, int sig) {
             /* Kernel-internal only: notify parent, no default action. */
             if (t->parent) {
                 t->parent->pending_signals |= SIG_BIT(SIGCHLD);
+                asm volatile("mfence" ::: "memory");
             }
             return;
 
@@ -827,6 +828,7 @@ do_terminate:
     /* Send SIGCHLD to parent */
     if (t->parent) {
         t->parent->pending_signals |= SIG_BIT(SIGCHLD);
+        asm volatile("mfence" ::: "memory");
         /* Wake parent if it was waiting */
         if (t->parent->state == TASK_WAITING) {
             t->parent->state = TASK_READY;
@@ -877,9 +879,10 @@ void task_send_sigint_foreground(void) {
 
     task_t *start = task;
     do {
-        /* Filter: Only send SIGINT to tasks that have a sigterm_handler (Ring 3) 
-         * and are not the idle task or kernel initialization context. */
-        if (task->id > 2 && task->sigterm_handler != 0) {
+        /* Filter: Only send SIGINT to tasks that are id > 2 
+         * (exempting idle and kernel init). SIGINT will trigger default 
+         * termination in task_deliver_signal if no handler is present. */
+        if (task->id > 2) {
             task_deliver_signal(task, SIGINT);
         }
         task = task->next;
@@ -995,6 +998,7 @@ void kill_foreground_processes() {
 
 void task_switch(registers_t *regs) {
     if (!current_task) return;  // AP not yet assigned a task
+    asm volatile("mfence" ::: "memory");
     if (!ready_queue) return;
 
     // Consistency Check: current_task must be in ready_queue (if it exists)
@@ -1125,6 +1129,7 @@ void task_switch(registers_t *regs) {
 }
 
 void schedule(registers_t *regs) {
+    asm volatile("mfence" ::: "memory");
     if (!ready_queue) panic("READY QUEUE NULL (schedule)");
     if (irq_depth > 1) return; // Don't schedule in nested interrupts
     assert_on_kstack(regs);

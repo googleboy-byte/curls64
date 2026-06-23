@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y \
     xxd \
     xorriso \
     grub-pc-bin \
+    grub-efi-amd64-bin \
+    ovmf \
     grub-common \
     gdb \
     gcc-multilib \

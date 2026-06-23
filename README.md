@@ -1,7 +1,11 @@
 # Curls OS
 *I don't know what I was thinking. I don't know what I am doing.*
 
-A hobbyist x86-32 operating system written from scratch — **modular kernel**, **stable ABI**, and **expressive shell**.
+A hobbyist **x86_64** operating system written from scratch — **modular kernel**, **stable ABI**, and **expressive shell**.
+
+> **Simplicity First**: Curls is designed for zero-friction boarding. With a single Docker command, you can launch a fully functional 64-bit SMP kernel with an interactive shell and an automated test suite. No complex toolchains, no messy dependencies.
+
+[**📖 Read the User Guide**](./docs/user_guide.md) | [**🏗️ Architecture Docs**](./docs/index.md) | [**🏁 Roadmap**](./docs/01_getting_started/roadmap.md)
 
 ---
 
@@ -9,14 +13,15 @@ A hobbyist x86-32 operating system written from scratch — **modular kernel**, 
 
 | Area | Status |
 |------|--------|
-| **Core** | Modular kernel framework with stable K-ABI ✅ |
-| **Paging** | 2-level paging, **Copy-on-Write (COW)** ✅ |
+| **Core** | Modular kernel framework with stable K-ABI (x86_64 native) ✅ |
+| **SMP** | Foundational Symmetric Multi-Processing (ACPI, LAPIC, IPI, Docker-verified) ✅ |
+| **Paging** | 4-level paging, **Copy-on-Write (COW)**, PHYSMAP ✅ |
 | **Heap** | Dynamic kernel heap with integrity checks ✅ |
-| **Tasks** | Preemptive scheduler, Hybrid stack model ✅ |
+| **Tasks** | Preemptive scheduler, Hybrid stack model, ELF64 support ✅ |
 | **Filesystems** | VFS, FAT32, Initrd, Pipes, FDs ✅ |
-| **User Mode** | Ring-3 isolation, ELF loader, `INT 0x80` U-ABI ✅ |
-| **Shell** | Variables, control flow, pipes, redirections ✅ |
-| **Stability** | ABI validation layer, ktrace crash logging ✅ |
+| **User Mode** | Ring-3 isolation, ELF64 loader, U-ABI v2 ✅ |
+| **Shell** | Variables, control flow, pipes, redirections, Ctrl+C handling ✅ |
+| **Stability** | 20-phase core test suite, ABI validation, ktrace ✅ |
 
 ---
 
@@ -43,17 +48,20 @@ A hobbyist x86-32 operating system written from scratch — **modular kernel**, 
 ## 🛠️ Quick Start
 
 ### Option A: Local Build
-**Dependencies:** `gcc`, `nasm`, `ld`, `qemu-system-i386`, `mtools`, `dosfstools`, `python3`
+**Dependencies:** `gcc`, `nasm`, `ld`, `qemu-system-x86_64`, `mtools`, `dosfstools`, `python3`
 
 ```bash
-# Legacy BIOS boot path (direct kernel, old flow)
-make clean run        # VGA window
-make run-nox          # Headless, legacy boot
+# Recommended: 64-bit Verification Suite (GRUB + Full Core Tests)
+make run-grub64-verify        # Boots into automated 20-phase test suite
+make run-grub64-verify-debug  # Above with serial/UART debug logs enabled
 
-# Recommended: GRUB + Multiboot2 boot path (used for USB images)
-make iso              # Build GRUB ISO (Multiboot2, framebuffer-aware)
-make run-grub         # Boot via GRUB in a VGA window
-make run-grub-nox     # Boot via GRUB headless, logs in ./logs
+# General 64-bit boot
+make iso64                    # Build x86_64 GRUB ISO
+make run-grub64               # Boot into 64-bit user shell (sh64)
+
+# Legacy 32-bit paths (preserved)
+make run                      # Legacy 32-bit BIOS boot
+make run-grub                 # 32-bit GRUB boot
 ```
 
 ### Option B: Docker (Recommended)
@@ -63,12 +71,15 @@ If you don't want to install dependencies locally, use the provided Docker setup
 # Build the container
 docker compose build
 
-# Run headless (incremental build)
-# This persists your 'disk.img' - changes you make in the shell stay there!
-docker compose run curls-os-dev make run-nox
+# Quick launch (recommended)
+make docker64              # Headless 64-bit verification suite
+make docker64-debug        # Above with SMP tracing and UART serial logs
+
+# Or use docker compose directly
+docker compose run curls-os-dev make run-grub64-verify
 
 # Fresh build (wipe disk.img)
-docker compose run curls-os-dev make clean run-nox
+docker compose run curls-os-dev make clean run-grub64-verify
 ```
 
 ---

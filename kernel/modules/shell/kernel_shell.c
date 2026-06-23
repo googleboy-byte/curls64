@@ -35,7 +35,7 @@ static int startsWith(char *str, char *prefix) {
     return 1;
 }
 
-static int execute_elf(const char *path, int argc, char **argv) {
+static int execute_elf(const char *path, int argc, char **argv, int wait) {
     int pid = kabi_fork();
     if (pid == 0) {
         // Child: Execute the new program
@@ -55,8 +55,10 @@ static int execute_elf(const char *path, int argc, char **argv) {
         kabi_task_exit();
         return -1;
     } else if (pid > 0) {
-        // Parent: Wait for child
-        kabi_wait_for_children();
+        // Parent: Optionally wait for child
+        if (wait) {
+            kabi_wait_for_children();
+        }
         return 0;
     } else {
         kprint("[SHELL] Fork failed.\n");
@@ -267,7 +269,7 @@ void shell_user_input(char *input) {
         if (argc < 2) {
             kprint("Usage: EXEC <path> [args...]\n");
         } else {
-            execute_elf(argv[1], argc - 1, &argv[1]);
+            execute_elf(argv[1], argc - 1, &argv[1], 1); // wait=1
         }
     } else if (strcmp(cmd, "PS") == 0) {
         kabi_ps();
@@ -326,18 +328,18 @@ void shell_user_input(char *input) {
             }
         }
 
-        if (kabi_debug_enabled()) kprint("[USER] Executing /BIN/INIT.ELF ...\n");
+        if (kabi_debug_enabled()) kprint("[USER] Executing /BIN/INIT.ELF (Background) ...\n");
         char *init_argv[] = {"/BIN/INIT.ELF", 0};
-        execute_elf("/BIN/INIT.ELF", 1, init_argv);
+        execute_elf("/BIN/INIT.ELF", 1, init_argv, 0); // wait=0 (Background)
 
 #ifdef ARCH_X86_64
-        if (kabi_debug_enabled()) kprint("[USER] Starting User Shell /BIN/SH64.ELF ...\n");
+        if (kabi_debug_enabled()) kprint("[USER] Starting User Shell /BIN/SH64.ELF (Background)...\n");
         char *sh_argv[] = {"/BIN/SH64.ELF", 0};
-        execute_elf("/BIN/SH64.ELF", 1, sh_argv);
+        execute_elf("/BIN/SH64.ELF", 1, sh_argv, 0); // wait=0 (Background)
 #else
-        if (kabi_debug_enabled()) kprint("[USER] Starting User Shell /BIN/SH.ELF ...\n");
+        if (kabi_debug_enabled()) kprint("[USER] Starting User Shell /BIN/SH.ELF (Background)...\n");
         char *sh_argv[] = {"/BIN/SH.ELF", 0};
-        execute_elf("/BIN/SH.ELF", 1, sh_argv);
+        execute_elf("/BIN/SH.ELF", 1, sh_argv, 0); // wait=0 (Background)
 #endif
     } else if (startsWith(input, "KILL ")) {
         int pid = 0;

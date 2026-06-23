@@ -271,7 +271,9 @@ void free(void *p, heap_t *heap) {
 
     // Merge right
     header_t *next_header = (header_t *) ((uintptr_t)footer + sizeof(footer_t));
-    if ((uintptr_t)next_header < heap->end_address && next_header->magic == HEAP_MAGIC && next_header->is_hole) {
+    if ((uintptr_t)next_header >= heap->start_address &&
+        (uintptr_t)next_header + sizeof(header_t) <= heap->end_address &&
+        next_header->magic == HEAP_MAGIC && next_header->is_hole) {
         header->size += next_header->size;
         // Remove next_header from the index
         uint32_t iterator = 0;
@@ -298,7 +300,13 @@ void free(void *p, heap_t *heap) {
 
     // Merge left
     footer_t *prev_footer = (footer_t *) ((uintptr_t)header - sizeof(footer_t));
-    if ((uintptr_t)prev_footer > heap->start_address && prev_footer->magic == HEAP_MAGIC && prev_footer->header->is_hole) {
+    if ((uintptr_t)prev_footer >= heap->start_address &&
+        (uintptr_t)prev_footer + sizeof(footer_t) <= (uintptr_t)header &&
+        prev_footer->magic == HEAP_MAGIC &&
+        (uintptr_t)prev_footer->header >= heap->start_address &&
+        (uintptr_t)prev_footer->header + sizeof(header_t) <= heap->end_address &&
+        prev_footer->header->magic == HEAP_MAGIC &&
+        prev_footer->header->is_hole) {
         uint32_t prev_size = prev_footer->header->size;
         header_t *prev_header = prev_footer->header;
         prev_header->size += header->size;

@@ -152,14 +152,15 @@ void smp_start_aps(void) {
         *(uint64_t*)(TRAMPOLINE_VIRT + ENTRY_OFFSET)   = (uint64_t)ap_entry;
         *(uint32_t*)(TRAMPOLINE_VIRT + CPUID_OFFSET)   = cpu_id;
 
+        asm volatile("mfence" ::: "memory");
         *((volatile uint16_t*)BREADCRUMB_VIRT) = 0x0000; // Reset breadcrumb
 
         // INIT Assert
         lapic_send_ipi(apic_id, 0x00004500);
-        for(volatile int d=0; d<100000; d++); // delay
+        for(volatile int d=0; d<1000000; d++); // delay
         // INIT Deassert (Level = 0, Trigger = 1 -> 0x8500)
         lapic_send_ipi(apic_id, 0x00008500);
-        for(volatile int d=0; d<100000; d++); // delay
+        for(volatile int d=0; d<1000000; d++); // delay
 
         // SIPI vec 0x70
         lapic_send_ipi(apic_id, 0x00004670);
@@ -167,10 +168,14 @@ void smp_start_aps(void) {
 
         // Second SIPI vec 0x70
         lapic_send_ipi(apic_id, 0x00004670);
-        for(volatile int d=0; d<10000; d++); // delay
+        for(volatile int d=0; d<100000; d++); // delay
 
-        int timeout = 500000;
+        int timeout = 10000000;
         while (!(ap_ready_flags & (1 << cpu_id)) && timeout-- > 0) {
+            if (timeout % 1000000 == 0) {
+                // optional: add mfence if needed, but volatile should handle it
+                asm volatile("mfence" ::: "memory");
+            }
             asm volatile("pause");
         }
 

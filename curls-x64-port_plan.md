@@ -4,30 +4,36 @@ overview: Port Curls from 32-bit i386 to a 64-bit x86_64 kernel while preserving
 todos:
   - id: arch-split-scaffold
     content: Introduce arch/x86_64 scaffolding and shared address types; isolate 32-bit arch-specific code paths without changing behavior yet.
-    status: pending
+    status: completed
   - id: x64-build-link
     content: "Add x86_64 kernel build pipeline: toolchain selection, linker64.ld, and Makefile ISO adjustments to produce an ELF64 Multiboot2 kernel."
-    status: pending
+    status: completed
   - id: multiboot2-longmode-trampoline
     content: Implement 32-bit Multiboot2 entry trampoline that constructs early PML4 and enters long mode; add kernel_multiboot2_main64 to parse tags and call kernel_main.
-    status: pending
+    status: completed
   - id: mmu64-pmm64-foundation
     content: Implement 4-level paging + mapping API, evolve PMM sizing from Multiboot2 memory map, preserve PHYSMAP/heap concepts, and support framebuffer mapping above 4GiB.
-    status: pending
+    status: completed
   - id: idt64-gdt64-isr64
     content: Port GDT/TSS to 64-bit (RSP0 + optional IST) and rewrite IDT/ISR stubs for x86_64; preserve timer-driven task switching mechanism.
-    status: pending
+    status: completed
   - id: syscalls-x64
     content: Bring up syscalls in long mode using int 0x80 first; update syscall dispatcher/register frame; document x64 syscall register convention.
-    status: pending
+    status: completed
   - id: userspace-elf64-uabi-v2
     content: "Port userspace to ELF64 + U-ABI v2: new loader, new syscall stubs, rebuild key user programs (init/sh/core utilities)."
-    status: pending
+    status: completed
   - id: kabi-x64-compat
     content: Widen K-ABI/module ABI types for x86_64 (conditional or v2); update kabi_bridge and module-facing structs to keep the kernel vision intact.
-    status: pending
+    status: completed
   - id: hardware-qemu-validation
     content: Add a repeatable test matrix (QEMU gfx/serial, real UEFI GOP laptop) and define milestones/acceptance checks per phase.
+    status: completed
+  - id: x64-smp-foundation
+    content: Implement Symmetric Multi-Processing support; ACPI MADT parsing, LAPIC/IOAPIC configuration, SIPI trampoline, and per-CPU GS_BASE storage.
+    status: completed
+  - id: production-smp-readiness
+    content: Harden SMP implementation with TLB shootdowns and cross-CPU scheduling IPIs.
     status: pending
 isProject: false
 ---

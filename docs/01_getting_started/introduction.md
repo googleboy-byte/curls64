@@ -30,27 +30,28 @@ Beginners get sane defaults; experts get full control. Complexity is layered, ne
 Broken invariants cause immediate `panic()`. Undefined behavior is surfaced early. No "mostly works" paths.
 
 ### 3.3 Prerequisites
-- **Dependencies**: `gcc`, `nasm`, `ld`, `qemu-system-i386`, `mtools`, `dosfstools`, `python3`.
+- **Dependencies**: `x86_64-elf-gcc`, `nasm`, `ld`, `qemu-system-x86_64`, `mtools`, `dosfstools`, `python3`.
 
 ### 3.4 Policy at the Edges, Mechanism at the Core
 The core provides the *how* (mechanism); modules provide the *what* (policy).
 
 ---
 
-## 4. Current State (v0.4+)
+## 4. Current State (v0.6+)
 
 ### 4.1 Architectural Invariants
-* **Single-CPU** (SMP-ready design).
+* **Symmetric Multi-Processing (SMP)**: Foundational support for multiple cores (ACPI/LAPIC).
 * **Hybrid Stack Model**: Dedicated task stacks + per-CPU interrupt stacks.
-* **Preemptive Multitasking** with deterministic scheduling.
+* **4-Level Paging**: Full x86_64 long-mode address space.
+* **Preemptive Multitasking** with deterministic scheduling and spinlock-safety.
 
 ### 4.2 Process & Lifecycle
-* `fork()` and `spawn()` support.
+* `fork()` and `spawn()` support (ELF64).
 * Automatic **Zombie Reaping** via PID 1 (global orphan reaper).
-* Persistent kernel shell (PID 1) and user shell (PID 3).
+* Persistent kernel shell (PID 1) and 64-bit user shell (PID 4).
 
 ### 4.3 Memory System
-* **Dynamic Kernel Heap**: Expands as needed.
+* **Dynamic Kernel Heap**: Expands as needed in the higher-half.
 * **Copy-on-Write (COW)**: Fully implemented for efficient forking.
 * **Linear PHYSMAP**: Direct access to physical memory from the kernel.
 
@@ -58,5 +59,5 @@ The core provides the *how* (mechanism); modules provide the *what* (policy).
 
 ## 5. Non-Goals
 * Full POSIX compliance.
-* Supporting all possible hardware (Primary target: x86-32/QEMU).
+* Supporting all possible hardware (Primary target: x86_64/QEMU/UEFI).
 * Feature parity with mature monolithic kernels.
