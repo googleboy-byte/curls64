@@ -356,7 +356,6 @@ void mmu_invlpg(virt_addr_t addr) {
     arch_mmu_invlpg(addr);
 
     // 2. Cross-core shootdown
-    // If SMP is ready and there are other CPUs online, shoot them down
     if (smp_tasking_ready && ap_ready_flags != 0) {
         smp_tlb_shootdown(addr);
     }

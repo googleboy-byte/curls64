@@ -5,6 +5,7 @@
 
 typedef struct {
     volatile virt_addr_t addr;
+    volatile uint64_t    target_cr3;   // Issue #2: address space context
     volatile uint32_t    pending_mask;
     spinlock_t           lock;
 } smp_tlb_shootdown_t;
