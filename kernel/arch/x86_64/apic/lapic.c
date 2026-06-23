@@ -70,6 +70,7 @@ void lapic_init(void) {
     // Map LAPIC MMIO out of the way
     mmu_map_page(kernel_directory, LAPIC_VIRT_BASE, phys, MMU_PRESENT | MMU_WRITABLE | MMU_PCD | MMU_PWT);
     lapic_base_virt = (volatile uint32_t*)LAPIC_VIRT_BASE;
+    asm volatile("mfence" ::: "memory");
     lapic_enabled = 1;
     
     kprint("[LAPIC] Mapped 0xFEE00000 -> 0xFFFFA00000100000\n");

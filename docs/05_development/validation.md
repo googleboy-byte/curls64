@@ -25,3 +25,11 @@ When adding new K-ABI or U-ABI functions, developers MUST:
 New validated functions must have corresponding tests in Phase 15 of the core test suite. These must prove:
 - ✅ **Positive Case**: Valid inputs are accepted.
 - ❌ **Negative Case**: Invalid inputs are correctly rejected with the appropriate error code.
+
+## 5. Docker/TCG Verification
+All tests must pass in both native QEMU/KVM and the Docker-based TCG environment. The TCG emulation backend exposes stricter memory ordering semantics and scheduling non-determinism, making it a valuable stress target for SMP correctness.
+
+Run the full suite in Docker with:
+```bash
+make docker64-debug
+```

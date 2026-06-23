@@ -64,7 +64,7 @@ typedef struct task_struct {
     struct task_struct *next;    // The next task in a linked list.
 
     /* --- Signal state --- */
-    uint32_t pending_signals;    // Bitmask of pending signals (SIG_BIT(sig))
+    volatile uint32_t pending_signals;    // Bitmask of pending signals (SIG_BIT(sig))
     uint32_t signal_mask;        // Bitmask of blocked signals (reserved, future)
     virt_addr_t sigterm_handler; // User-space EIP for SIGTERM/SIGINT handler (0 = default)
     virt_addr_t saved_eip;       // User EIP saved before signal handler dispatch (for sigreturn)

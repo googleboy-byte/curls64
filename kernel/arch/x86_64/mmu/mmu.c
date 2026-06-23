@@ -94,6 +94,7 @@ int mmu_map_page(mmu_context_t *ctx, virt_addr_t virt, phys_addr_t phys, uint64_
     if (!pt) return -1;
     
     pt->entries[PT_IDX(virt)] = (phys & ~0xFFFULL) | flags | MMU_PRESENT;
+    mmu_invlpg(virt);
     return 0;
 }
 
