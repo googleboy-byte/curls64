@@ -27,9 +27,9 @@ const char sc_ascii[] = { '?', '?', '1', '2', '3', '4', '5', '6',
         'b', 'n', 'm', ',', '.', '/', '?', '?', '?', ' '};
 
 /* shift, ctrl and caps lock state */
-static int shift_pressed = 0;
-static int ctrl_pressed = 0;
-static int caps_lock = 0;
+static volatile int shift_pressed = 0;
+static volatile int ctrl_pressed = 0;
+static volatile int caps_lock = 0;
 
 // Circular Input Queue for Raw Characters
 #define KB_QUEUE_SIZE 256

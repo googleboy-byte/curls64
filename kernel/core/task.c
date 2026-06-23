@@ -877,9 +877,10 @@ void task_send_sigint_foreground(void) {
 
     task_t *start = task;
     do {
-        /* Filter: Only send SIGINT to tasks that have a sigterm_handler (Ring 3) 
-         * and are not the idle task or kernel initialization context. */
-        if (task->id > 2 && task->sigterm_handler != 0) {
+        /* Filter: Only send SIGINT to tasks that are id > 2 
+         * (exempting idle and kernel init). SIGINT will trigger default 
+         * termination in task_deliver_signal if no handler is present. */
+        if (task->id > 2) {
             task_deliver_signal(task, SIGINT);
         }
         task = task->next;
