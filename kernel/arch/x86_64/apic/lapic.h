@@ -14,6 +14,7 @@
 #define LAPIC_TIMER_INIT  0x380  // Timer initial count
 #define LAPIC_TIMER_CURR  0x390  // Timer current count
 #define LAPIC_TIMER_DIV   0x3E0  // Timer divide config
+#define LAPIC_IPI_TLB_SHOOTDOWN 0x41
 
 extern int lapic_enabled;
 extern int use_lapic_timer;

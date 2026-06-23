@@ -26,6 +26,12 @@ volatile uint32_t ap_ready_flags = 0;
 volatile int      smp_tasking_ready = 0;
 static uint64_t   ap_trampoline_stacks[8] = {0}; // trampoline stack_top per AP
 
+static smp_tlb_shootdown_t global_shootdown = {
+    .addr = 0,
+    .pending_mask = 0,
+    .lock = SPINLOCK_INIT
+};
+
 static inline uint64_t get_cr3(void) {
     uint64_t cr3;
     asm volatile("mov %%cr3, %0" : "=r"(cr3));
@@ -33,6 +39,56 @@ static inline uint64_t get_cr3(void) {
 }
 extern void cpu_init(int cpu_id);
 extern void lapic_init(void);
+
+void smp_tlb_handler(registers_t *regs) {
+    (void)regs;
+    // 1. Invalidate local TLB entry
+    extern void arch_mmu_invlpg(virt_addr_t addr);
+    arch_mmu_invlpg(global_shootdown.addr);
+
+    // 2. Ack completion (atomic clear bit)
+    int my_id = get_cpu_local()->id;
+    __sync_fetch_and_and(&global_shootdown.pending_mask, ~(1 << my_id));
+
+    // 3. EOI to LAPIC
+    lapic_write(0x0B0, 0); // LAPIC_EOI
+}
+
+void smp_tlb_shootdown(virt_addr_t addr) {
+    if (!smp_tasking_ready) {
+        // Fallback for single-core / boot time
+        extern void mmu_invlpg(virt_addr_t addr);
+        mmu_invlpg(addr);
+        return;
+    }
+
+    uint64_t flags = spin_lock_irqsave(&global_shootdown.lock);
+    
+    global_shootdown.addr = addr;
+    
+    // Broadcast to all but self
+    // Target mask including all currently online CPUs except self
+    uint32_t targets = ap_ready_flags | (1 << 0); // Include BSP
+    targets &= ~(1 << get_cpu_local()->id);
+    
+    global_shootdown.pending_mask = targets;
+    
+    // Send IPI: Destination Shorthand = 0x3 (All Excluding Self)
+    // Vector 0x41, Delivery Mode 0x0, Physical, Edge, Assert, Assert
+    // Command: 0x000C0041
+    // (Wait, lapic_send_ipi takes a dest. Let's use 0xFF for broadcast or 0x000C0000 in ICR)
+    
+    // Actually, let's use the shorthand for efficiency
+    lapic_write(0x310, 0); // ICR_HIGH (ignored if shorthand used)
+    lapic_write(0x300, 0x000C0000 | 0x41); // All excluding self | Vector 0x41
+    
+    // Wait for all to ACK
+    while (global_shootdown.pending_mask != 0) {
+        asm volatile("pause");
+    }
+    
+    spin_unlock_irqrestore(&global_shootdown.lock, flags);
+}
 
 // AP entry function called from assembly trampoline
 void ap_entry(int cpu_id) {
@@ -126,6 +182,9 @@ void smp_start_aps(void) {
     extern gdt_ptr_t gdt_ptr;
 
     kprint("[SMP] Starting APs...\n");
+
+    // Register TLB shootdown handler
+    register_interrupt_handler(0x41, smp_tlb_handler);
 
     uint8_t *t = (uint8_t*)TRAMPOLINE_VIRT;
     kprint("[SMP] Trampoline bytes at 0x70000:\n");
