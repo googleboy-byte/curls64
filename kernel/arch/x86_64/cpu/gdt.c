@@ -16,8 +16,8 @@ extern void tss_flush(uint32_t selector);
 gdt_entry64_t gdt_entries[7 + (MAX_CPU * 2)];
 gdt_ptr_t     gdt_ptr;
 
-#define MAX_SMP_CPUS 8
-cpu_local_t cpu_local[MAX_SMP_CPUS];
+#include <smp_config.h>
+cpu_local_t cpu_local[SMP_MAX_CPUS];
 
 static void gdt_set_gate(int32_t num, uint32_t limit, uint8_t access, uint8_t gran) {
     gdt_entries[num].limit_low   = (limit & 0xFFFF);

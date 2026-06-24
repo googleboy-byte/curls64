@@ -1,4 +1,5 @@
 #include "smp.h"
+#include "../../../include/smp_config.h"
 #include "trampoline_blob.h"
 #include "../../../../libc/mem.h"
 #include "../../../include/cpu_local.h"
@@ -24,7 +25,7 @@ extern void kprint(const char *str);
 
 volatile uint32_t ap_ready_flags = 0;
 volatile int      smp_tasking_ready = 0;
-static uint64_t   ap_trampoline_stacks[8] = {0}; // trampoline stack_top per AP
+static uint64_t   ap_trampoline_stacks[SMP_MAX_CPUS] = {0}; // trampoline stack_top per AP
 
 static smp_tlb_shootdown_t global_shootdown = {
     .addr = 0,
@@ -40,6 +41,25 @@ static inline uint64_t get_cr3(void) {
 extern void cpu_init(int cpu_id);
 extern void lapic_init(void);
 
+/*
+ * smp_tlb_handler — TLB shootdown IPI handler (vector 0x41)
+ *
+ * Protocol invariant: this handler reads global_shootdown.addr and
+ * .target_cr3 WITHOUT holding the spinlock.  This is safe because:
+ *
+ *   1. The initiator (smp_tlb_shootdown) sets .addr and .target_cr3
+ *      BEFORE setting .pending_mask and sending the IPI.
+ *   2. The IPI is edge-triggered — the handler only runs AFTER the
+ *      initiator has finished writing the struct fields.
+ *   3. The initiator does NOT release the lock (and therefore cannot
+ *      start a new shootdown) until pending_mask drains to zero.
+ *   4. Each handler clears its own bit atomically, so the initiator
+ *      sees completion only after all handlers have read the fields.
+ *
+ * Consequence: .addr/.target_cr3 are stable for the entire duration
+ * of the handler.  Do NOT reorder the initiator's writes or remove
+ * the mfence in smp_tlb_shootdown without re-evaluating this.
+ */
 void smp_tlb_handler(registers_t *regs) {
     (void)regs;
 
@@ -65,7 +85,7 @@ ack:
     __sync_fetch_and_and(&global_shootdown.pending_mask, ~(1 << my_id));
 
     // 3. EOI to LAPIC
-    lapic_write(0x0B0, 0); // LAPIC_EOI
+    lapic_write(LAPIC_EOI, 0);
 
     // NOTE: No need to neutralize task_switch_rsp here — it is now per-CPU
     // (read via GS base in assembly), so an AP can never steal the BSP's
@@ -111,7 +131,9 @@ void smp_tlb_shootdown(virt_addr_t addr) {
             hex_to_ascii(global_shootdown.pending_mask, s);
             kprint(s);
             kprint("\n");
-            // Break out — better to continue with stale TLBs than deadlock
+            // Force-clear stale bits so the next shootdown doesn't
+            // inherit them and immediately timeout again.
+            global_shootdown.pending_mask = 0;
             break;
         }
     }
@@ -139,7 +161,9 @@ void ap_entry(int cpu_id) {
     lapic_write(0xF0, 0x100 | 0xFF);
 
     // 3. Signal BSP that this AP is ready
-    ap_ready_flags |= (1 << cpu_id);
+    // Atomic OR — two APs may execute this concurrently (QEMU 4+ CPUs),
+    // and a plain |= is a non-atomic RMW that can lose a bit.
+    __sync_fetch_and_or(&ap_ready_flags, 1 << cpu_id);
 
     // 4. Spin-wait until BSP signals tasking is ready
     while (!smp_tasking_ready) {
