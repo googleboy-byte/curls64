@@ -205,3 +205,39 @@ Option 2 — compat segments in GDT with ELF class detection.
 
 **Rationale:**
 Dropping 32-bit would have invalidated the entire existing user-space. Emulation is massive overkill. The hardware supports compatibility mode natively — all that's needed is a 32-bit code segment (`UCode32`) in the GDT and adjusting the IRET frame to push 32-bit-sized values. Signal handling was extended similarly (commit `a3bbd93`) to build 32-bit trampoline frames when the target process is a compat binary.
+
+---
+
+## `free_internal()` split to avoid deadlock in heap allocator
+
+**Context:**
+Adding a spinlock (`heap_lock`) to `alloc()` and `free()` in `kheap.c` for SMP safety. Problem: `alloc()` calls `expand()`, which calls `free()` to return the new hole to the index. If `free()` acquires `heap_lock`, and `alloc()` already holds it, the kernel deadlocks.
+
+**Options considered:**
+1. Recursive/reentrant spinlock — allows the same core to re-acquire
+2. Split `free()` into a lock-free `free_internal()` and a public `free()` that wraps with the lock
+3. Release the lock before calling `expand()`, re-acquire after — introduces a window where another core can see inconsistent state
+
+**Decision:**
+Option 2 — `free_internal()` + public wrapper.
+
+**Rationale:**
+Recursive spinlocks are error-prone and mask real lock ordering bugs. Option 3 introduces a race window (the heap is in a half-expanded state between unlock and re-lock). Option 2 is clean: `free_internal()` does the actual work (mark hole, coalesce, insert into index), `free()` wraps it with `spin_lock_irqsave(&heap_lock)`. The call chain `alloc() → expand() → free_internal()` stays fully under the lock with no re-acquisition needed.
+
+---
+
+## Kernel-only page table locking in `mmu_map_page()` / `get_page()`
+
+**Context:**
+`get_or_alloc_table()` in `mmu.c` writes to `parent->entries[index]` without locking. Two cores extending `kernel_directory` concurrently can race on the same PML4/PDPT/PD slot, with one core's newly allocated table being silently overwritten by the other's.
+
+**Options considered:**
+1. Lock inside `get_or_alloc_table()` itself — protects individual slot writes
+2. Lock at the caller level (`mmu_map_page` / `get_page`) — protects the entire 3-call sequence atomically
+3. Lock unconditionally for all page directories (kernel and per-process)
+
+**Decision:**
+Option 2, with a guard `if (ctx == kernel_directory)` to only lock for the shared kernel directory.
+
+**Rationale:**
+Option 1 doesn't protect the full sequence — core A could allocate a PDPT and core B could see the PML4 entry but race on the PDPT's PD slot before A fills it. The lock must span the entire walk. Option 3 is wasteful: per-process directories are never shared across cores (each process runs on one core at a time, and `clone_page_directory` creates a private copy). Locking only `kernel_directory` avoids contention on the common case (user-space page faults) while protecting the genuinely shared structure.

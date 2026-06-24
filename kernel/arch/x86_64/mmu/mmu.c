@@ -5,6 +5,10 @@
 #include "../../../core/kernel.h"
 #include "../../../modules/drivers/screen.h"
 #include "../smp/smp.h"
+#include <spinlock.h>
+
+extern mmu_context_t *kernel_directory;
+static spinlock_t pgtable_lock = SPINLOCK_INIT;
 
 /**
  * @file mmu.c
@@ -83,19 +87,35 @@ mmu_entry_t *mmu_get_entry(mmu_context_t *ctx, virt_addr_t virt) {
 }
 
 int mmu_map_page(mmu_context_t *ctx, virt_addr_t virt, phys_addr_t phys, uint64_t flags) {
+    int is_kernel = (ctx == kernel_directory);
+    if (is_kernel) {
+        spin_lock(&pgtable_lock);
+    }
     mmu_table_t *pml4 = ctx->pml4_virt;
     
     mmu_table_t *pdpt = get_or_alloc_table(pml4, PML4_IDX(virt), flags);
-    if (!pdpt) return -1;
+    if (!pdpt) {
+        if (is_kernel) spin_unlock(&pgtable_lock);
+        return -1;
+    }
     
     mmu_table_t *pd = get_or_alloc_table(pdpt, PDPT_IDX(virt), flags);
-    if (!pd) return -1;
+    if (!pd) {
+        if (is_kernel) spin_unlock(&pgtable_lock);
+        return -1;
+    }
     
     mmu_table_t *pt = get_or_alloc_table(pd, PD_IDX(virt), flags);
-    if (!pt) return -1;
+    if (!pt) {
+        if (is_kernel) spin_unlock(&pgtable_lock);
+        return -1;
+    }
     
     pt->entries[PT_IDX(virt)] = (phys & ~0xFFFULL) | flags | MMU_PRESENT;
     mmu_invlpg(virt);
+    if (is_kernel) {
+        spin_unlock(&pgtable_lock);
+    }
     return 0;
 }
 
@@ -251,36 +271,45 @@ void mmu_init(void) {
     kprint("  - x86_64 MMU implementation active (CR0.WP enabled)\n");
 }
 
-/* Compatibility wrapper for get_page used by common code (e.g. kmalloc) */
 page_t *get_page(virt_addr_t address, int make, page_directory_t *dir) {
-    mmu_entry_t *entry = mmu_get_entry(dir, address);
-    if (entry) return entry;
+    int is_kernel = (dir == (page_directory_t*)kernel_directory);
+    if (is_kernel) {
+        spin_lock(&pgtable_lock);
+    }
+    mmu_entry_t *entry = mmu_get_entry((mmu_context_t*)dir, address);
+    if (entry) {
+        if (is_kernel) spin_unlock(&pgtable_lock);
+        return entry;
+    }
     
     if (make) {
-        // Just create the page table hierarchy without mapping a physical frame.
-        // We do this by calling mmu_get_entry's internal logic or a helper.
-        // For now, mmu_get_entry doesn't 'make'. 
-        // Let's use mmu_map_page with a special flag or just fix the traversal.
-        
-        // Actually, mmu_map_page with phys=0 sets the frame to 0. 
-        // We want a 'present=0' entry but with the table existing.
-        // Let's implement a small helper to ensure the hierarchy exists.
-        
-        mmu_table_t *pml4 = dir->pml4_virt;
+        mmu_table_t *pml4 = ((mmu_context_t*)dir)->pml4_virt;
         int pml4_idx = (address >> 39) & 0x1FF;
         int pdpt_idx = (address >> 30) & 0x1FF;
         int pd_idx   = (address >> 21) & 0x1FF;
         int pt_idx   = (address >> 12) & 0x1FF;
 
         mmu_table_t *pdpt = get_or_alloc_table(pml4, pml4_idx, MMU_WRITABLE | MMU_PRESENT | MMU_USER);
-        if (!pdpt) return NULL;
+        if (!pdpt) {
+            if (is_kernel) spin_unlock(&pgtable_lock);
+            return NULL;
+        }
         mmu_table_t *pd   = get_or_alloc_table(pdpt, pdpt_idx, MMU_WRITABLE | MMU_PRESENT | MMU_USER);
-        if (!pd) return NULL;
+        if (!pd) {
+            if (is_kernel) spin_unlock(&pgtable_lock);
+            return NULL;
+        }
         mmu_table_t *pt   = get_or_alloc_table(pd, pd_idx, MMU_WRITABLE | MMU_PRESENT | MMU_USER);
-        if (!pt) return NULL;
+        if (!pt) {
+            if (is_kernel) spin_unlock(&pgtable_lock);
+            return NULL;
+        }
 
-        return &pt->entries[pt_idx];
+        page_t *ret = &pt->entries[pt_idx];
+        if (is_kernel) spin_unlock(&pgtable_lock);
+        return ret;
     }
+    if (is_kernel) spin_unlock(&pgtable_lock);
     return NULL;
 }
 

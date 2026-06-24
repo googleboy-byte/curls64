@@ -1,6 +1,9 @@
 #include "mem.h"
 #include "../kernel/cpu/paging.h"
 #include "../kernel/core/kernel.h"
+#include <spinlock.h>
+
+static spinlock_t kmalloc_int_lock = SPINLOCK_INIT;
 
 void memory_copy(uint8_t *source, uint8_t *dest, size_t nbytes) {
     int i;
@@ -34,7 +37,7 @@ uintptr_t free_mem_addr = (uintptr_t)_kernel_end;
 heap_t *kheap = 0;
 
 uint64_t kmalloc_int(size_t size, int align, phys_addr_t *phys_addr) {
-    uintptr_t f = irq_save();
+    uint64_t f = spin_lock_irqsave(&kmalloc_int_lock);
     
     if (pmm_is_ready) {
         if (size > 0x1000) panic("kmalloc_int: size > 4K requested after PMM ready");
@@ -43,7 +46,7 @@ uint64_t kmalloc_int(size_t size, int align, phys_addr_t *phys_addr) {
         pmm_set_frame(frame);
         uintptr_t ret = (uintptr_t)frame * 0x1000;
         if (phys_addr) *phys_addr = ret;
-        irq_restore(f);
+        spin_unlock_irqrestore(&kmalloc_int_lock, f);
         return (uint64_t)ret;
     }
 
@@ -59,7 +62,7 @@ uint64_t kmalloc_int(size_t size, int align, phys_addr_t *phys_addr) {
     uintptr_t ret = free_mem_addr;
     free_mem_addr += size; /* Remember to increment the pointer */
 
-    irq_restore(f);
+    spin_unlock_irqrestore(&kmalloc_int_lock, f);
     return (uint64_t)ret;
 }
 

@@ -4,25 +4,29 @@
 #include "ports.h"
 #include "../../libc/function.h"
 #include "../core/task.h"
+#include <spinlock.h>
 
 uint32_t tick = 0;
+extern spinlock_t sq_lock;
 
 extern volatile task_t *ready_queue;
 
 void timer_callback(registers_t *regs) {
-    tick++;
+    uint32_t cur_tick = __sync_add_and_fetch(&tick, 1);
     if (current_task) ((task_t*)current_task)->ticks++;
     get_cpu_local()->timer_ticks++;
 
     /* Drain the head of the sorted sleep queue */
     extern volatile task_t *sleep_queue;
-    while (sleep_queue && tick >= sleep_queue->sleep_until) {
+    spin_lock(&sq_lock);
+    while (sleep_queue && cur_tick >= sleep_queue->sleep_until) {
         task_t *t = (task_t*)sleep_queue;
         sleep_queue = t->sleep_next;
         t->sleep_next  = NULL;
         t->sleep_until = 0;
         if (t->state == TASK_WAITING) t->state = TASK_READY;
     }
+    spin_unlock(&sq_lock);
 
 #ifdef ARCH_X86_64
     extern int use_lapic_timer;
