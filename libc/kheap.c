@@ -3,6 +3,12 @@
 #include "mem.h"
 #include "string.h"
 #include "../kernel/core/task.h"
+#include <spinlock.h>
+
+static spinlock_t heap_lock = SPINLOCK_INIT;
+
+/* Lock-free internal free — called from expand() which already holds heap_lock */
+static void free_internal(void *p, heap_t *heap);
 
 /* Forward declarations */
 int8_t header_t_less_than(void* a, void* b);
@@ -83,7 +89,7 @@ static int32_t find_smallest_hole(size_t size, uint8_t page_align, heap_t *heap)
 
 void *alloc(size_t size, uint8_t page_align, heap_t *heap) {
     size_t new_size = size + sizeof(header_t) + sizeof(footer_t);
-    uintptr_t f = irq_save();
+    uint64_t f = spin_lock_irqsave(&heap_lock);
     int32_t iterator = find_smallest_hole(new_size, page_align, heap);
 
     if (iterator == -1) {
@@ -102,7 +108,7 @@ void *alloc(size_t size, uint8_t page_align, heap_t *heap) {
         iterator = find_smallest_hole(new_size, page_align, heap);
         
         if (iterator == -1) {
-            irq_restore(f);
+            spin_unlock_irqrestore(&heap_lock, f);
             return 0; // Still failed!
         }
     }
@@ -176,7 +182,7 @@ void *alloc(size_t size, uint8_t page_align, heap_t *heap) {
         insert_ordered_array((void*)hole_header, &heap->index);
     }
     
-    irq_restore(f);
+    spin_unlock_irqrestore(&heap_lock, f);
     return (void *) ( (uintptr_t)block_header + sizeof(header_t) );
 }
 
@@ -237,9 +243,9 @@ void expand(virt_addr_t new_size, heap_t *heap) {
     hole_footer->magic = HEAP_MAGIC;
     hole_footer->header = hole_header;
 
-    // Use the existing free() mechanism to add it to the hole index
-    // free() takes a pointer to the DATA part
-    free((void*)((uintptr_t)hole_header + sizeof(header_t)), heap);
+    // Use the internal free (no lock) — caller (alloc) already holds heap_lock
+    // free_internal() takes a pointer to the DATA part
+    free_internal((void*)((uintptr_t)hole_header + sizeof(header_t)), heap);
 }
 
 virt_addr_t contract(virt_addr_t new_size, heap_t *heap) {
@@ -258,14 +264,14 @@ virt_addr_t contract(virt_addr_t new_size, heap_t *heap) {
     return (virt_addr_t)(heap->end_address - heap->start_address);
 }
 
-void free(void *p, heap_t *heap) {
+/* Lock-free internal free — used by expand() which already holds heap_lock */
+static void free_internal(void *p, heap_t *heap) {
     if (p == 0) return;
-    uintptr_t f = irq_save();
     header_t *header = (header_t*) ( (uintptr_t)p - sizeof(header_t) );
     footer_t *footer = (footer_t*) ( (uintptr_t)header + header->size - sizeof(footer_t) );
 
-    if (header->magic != HEAP_MAGIC) { irq_restore(f); return; } // Sanity check
-    if (footer->magic != HEAP_MAGIC) { irq_restore(f); return; }
+    if (header->magic != HEAP_MAGIC) return; // Sanity check
+    if (footer->magic != HEAP_MAGIC) return;
 
     header->is_hole = 1;
 
@@ -334,7 +340,14 @@ void free(void *p, heap_t *heap) {
     }
 
     insert_ordered_array((void*)header, &heap->index);
-    irq_restore(f);
+}
+
+/* Public free() — acquires heap_lock */
+void free(void *p, heap_t *heap) {
+    if (p == 0) return;
+    uint64_t f = spin_lock_irqsave(&heap_lock);
+    free_internal(p, heap);
+    spin_unlock_irqrestore(&heap_lock, f);
 }
 
 
@@ -390,6 +403,7 @@ extern heap_t *kheap;
 
 void get_heap_stats(heap_stats_t *stats) {
     if (!kheap || !stats) return;
+    uint64_t f = spin_lock_irqsave(&heap_lock);
     stats->total_size = (size_t)(kheap->end_address - kheap->start_address);
     stats->max_addr = kheap->max_address;
     
@@ -400,4 +414,5 @@ void get_heap_stats(heap_stats_t *stats) {
     }
     stats->free_size = hole_size;
     stats->used_size = stats->total_size - hole_size;
+    spin_unlock_irqrestore(&heap_lock, f);
 }

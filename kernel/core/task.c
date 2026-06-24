@@ -23,7 +23,7 @@ volatile task_t *sleep_queue = 0;
 #include <spinlock.h>
 static spinlock_t pid_lock = SPINLOCK_INIT;
 static spinlock_t rq_lock = SPINLOCK_INIT;
-static spinlock_t sq_lock = SPINLOCK_INIT;
+spinlock_t sq_lock = SPINLOCK_INIT;
 
 static task_t *cpu_idle_tasks[MAX_CPU] = {0};
 
@@ -439,8 +439,9 @@ int sys_fork(registers_t *regs) {
     // PHASE 3: Surgical Stack Cloning
     // Determine the source stack top (could be task's private stack or CPU entry stack)
     virt_addr_t src_stack_top = parent->kernel_stack;
-    if ((virt_addr_t)regs >= cpu_local[0].kstack_base && (virt_addr_t)regs < cpu_local[0].kstack_top) {
-        src_stack_top = cpu_local[0].kstack_top;
+    cpu_local_t *cpu = get_cpu_local();
+    if ((virt_addr_t)regs >= cpu->kstack_base && (virt_addr_t)regs < cpu->kstack_top) {
+        src_stack_top = cpu->kstack_top;
     }
 
     virt_addr_t stack_used = src_stack_top - (virt_addr_t)regs;
@@ -476,7 +477,7 @@ int sys_fork(registers_t *regs) {
 
     // PHASE 4.1: Parent-Relative EBP Chain Fixup
     virt_addr_t src_stack_base = parent->kernel_stack_base;
-    if (src_stack_top == cpu_local[0].kstack_top) src_stack_base = cpu_local[0].kstack_base;
+    if (src_stack_top == cpu->kstack_top) src_stack_base = cpu->kstack_base;
 
 #ifdef ARCH_X86_64
     if (regs->rbp >= src_stack_base && regs->rbp < src_stack_top) {
@@ -1049,12 +1050,13 @@ void task_switch(registers_t *regs) {
         kprint(" (REGS="); hex64_to_ascii((uint64_t)prev_task->user_esp, s); kprint(s); kprint(")\n");
     }
 
+    // Phase 2: Selection of the incoming task
+    spin_lock(&rq_lock);
+
     if (prev_task->state == TASK_RUNNING) {
         prev_task->state = TASK_READY;
     }
 
-    // Phase 2: Selection of the incoming task
-    spin_lock(&rq_lock);
     task_t *next_task = prev_task;
 
     if (current_scheduler && current_scheduler->pick_next) {
@@ -1072,20 +1074,24 @@ void task_switch(registers_t *regs) {
             if (++rotations > MAX_TASKS + 2) break;
         }
     }
-    spin_unlock(&rq_lock);
 
     // If no other task is ready, just continue with the current one
     if (next_task == prev_task) {
         prev_task->state = TASK_RUNNING;
+        spin_unlock(&rq_lock);
         return;
     }
 
     // Phase 3: Transition to the incoming task
+    // Mark next as RUNNING while still holding rq_lock so no other core can pick it
+    current_task = next_task;
+    current_task->state = TASK_RUNNING;
+    spin_unlock(&rq_lock);
+
     KTRACE2(KTRACE_SCHED_SWITCH, prev_task->id, next_task->id);
 
-    current_task = next_task;
     validate_task((task_t*)current_task);
-    current_task->state = TASK_RUNNING;
+
 
     if (kabi_debug_enabled()) {
         char s[32], s2[32], rip_s[32]; 
@@ -1114,10 +1120,11 @@ void task_switch(registers_t *regs) {
     set_kernel_stack(current_task->kernel_stack);
 
     // Final safety checks
+    cpu_local_t *cpu = get_cpu_local();
     if ((current_task->user_esp < current_task->kernel_stack_base || 
          current_task->user_esp >= current_task->kernel_stack) &&
-        (current_task->user_esp < cpu_local[0].kstack_base ||
-         current_task->user_esp >= cpu_local[0].kstack_top)) {
+        (current_task->user_esp < cpu->kstack_base ||
+         current_task->user_esp >= cpu->kstack_top)) {
         kprint("BAD ESP: 0x"); char s[16]; hex_to_ascii(current_task->user_esp, s); kprint(s); kprint("\n");
         panic("TASK SWITCH ESP OUT OF KSTACK");
     }
