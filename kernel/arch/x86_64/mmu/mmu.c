@@ -4,6 +4,7 @@
 #include "../../../../libc/string.h"
 #include "../../../core/kernel.h"
 #include "../../../modules/drivers/screen.h"
+#include "../smp/smp.h"
 
 /**
  * @file mmu.c
@@ -349,4 +350,13 @@ void free_page_directory(page_directory_t *dir) {
 void promote_to_user_table(page_directory_t *dir, virt_addr_t start, uint32_t len) {
     // 64-bit MMU map logic in exec.c already ensures user flags are set 
     // for specific ranges. This is a no-op fallback for now.
+}
+void mmu_invlpg(virt_addr_t addr) {
+    // 1. Local invalidation
+    arch_mmu_invlpg(addr);
+
+    // 2. Cross-core shootdown
+    if (smp_tasking_ready && ap_ready_flags != 0) {
+        smp_tlb_shootdown(addr);
+    }
 }

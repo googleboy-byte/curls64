@@ -1,5 +1,6 @@
 #include "gdt.h"
 #include <cpu_local.h>
+#include <cpu_local_offsets.h>
 #include "../../../../libc/mem.h"
 #include "../../../../libc/string.h"
 #include "../../../../libc/kheap.h"
@@ -15,9 +16,8 @@ extern void tss_flush(uint32_t selector);
 gdt_entry64_t gdt_entries[7 + (MAX_CPU * 2)];
 gdt_ptr_t     gdt_ptr;
 
-#define MAX_SMP_CPUS 8
-cpu_local_t cpu_local[MAX_SMP_CPUS];
-volatile uint64_t task_switch_rsp = 0;
+#include <smp_config.h>
+cpu_local_t cpu_local[SMP_MAX_CPUS];
 
 static void gdt_set_gate(int32_t num, uint32_t limit, uint8_t access, uint8_t gran) {
     gdt_entries[num].limit_low   = (limit & 0xFFFF);
@@ -95,7 +95,7 @@ void cpu_init(int cpu_id) {
     cpu->kstack_top = cpu->kstack_base + 8192;
     // Set kernel stack for this CPU's TSS
     cpu->tss.rsp0 = cpu->kstack_top;
-    cpu->_task_switch_rsp = cpu->kstack_top;
+    cpu->_task_switch_rsp = 0; // No pending task switch at boot
     
     write_tss64(GDT_TSS_BASE + (cpu_id * 2), &cpu->tss);
     

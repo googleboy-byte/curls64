@@ -1,4 +1,5 @@
 #include "smp.h"
+#include "../../../include/smp_config.h"
 #include "trampoline_blob.h"
 #include "../../../../libc/mem.h"
 #include "../../../include/cpu_local.h"
@@ -24,7 +25,13 @@ extern void kprint(const char *str);
 
 volatile uint32_t ap_ready_flags = 0;
 volatile int      smp_tasking_ready = 0;
-static uint64_t   ap_trampoline_stacks[8] = {0}; // trampoline stack_top per AP
+static uint64_t   ap_trampoline_stacks[SMP_MAX_CPUS] = {0}; // trampoline stack_top per AP
+
+static smp_tlb_shootdown_t global_shootdown = {
+    .addr = 0,
+    .pending_mask = 0,
+    .lock = SPINLOCK_INIT
+};
 
 static inline uint64_t get_cr3(void) {
     uint64_t cr3;
@@ -33,6 +40,106 @@ static inline uint64_t get_cr3(void) {
 }
 extern void cpu_init(int cpu_id);
 extern void lapic_init(void);
+
+/*
+ * smp_tlb_handler — TLB shootdown IPI handler (vector 0x41)
+ *
+ * Protocol invariant: this handler reads global_shootdown.addr and
+ * .target_cr3 WITHOUT holding the spinlock.  This is safe because:
+ *
+ *   1. The initiator (smp_tlb_shootdown) sets .addr and .target_cr3
+ *      BEFORE setting .pending_mask and sending the IPI.
+ *   2. The IPI is edge-triggered — the handler only runs AFTER the
+ *      initiator has finished writing the struct fields.
+ *   3. The initiator does NOT release the lock (and therefore cannot
+ *      start a new shootdown) until pending_mask drains to zero.
+ *   4. Each handler clears its own bit atomically, so the initiator
+ *      sees completion only after all handlers have read the fields.
+ *
+ * Consequence: .addr/.target_cr3 are stable for the entire duration
+ * of the handler.  Do NOT reorder the initiator's writes or remove
+ * the mfence in smp_tlb_shootdown without re-evaluating this.
+ */
+void smp_tlb_handler(registers_t *regs) {
+    (void)regs;
+
+    // Issue #2: CR3-aware shootdown filtering.
+    // If the shootdown targets a user-space address (< 0xFFFF800000000000),
+    // only invalidate if we're in the same address space (same CR3).
+    // Kernel-space addresses are global across all address spaces.
+    virt_addr_t shoot_addr = global_shootdown.addr;
+    if (shoot_addr < 0xFFFF800000000000ULL) {
+        uint64_t my_cr3 = get_cr3();
+        if (my_cr3 != global_shootdown.target_cr3) {
+            // Different address space — skip invlpg, just ack
+            goto ack;
+        }
+    }
+
+    // 1. Invalidate local TLB entry (raw arch, no recursion)
+    asm volatile("invlpg (%0)" : : "r"(shoot_addr) : "memory");
+
+ack:
+    // 2. Ack completion (atomic clear bit)
+    int my_id = get_cpu_local()->id;
+    __sync_fetch_and_and(&global_shootdown.pending_mask, ~(1 << my_id));
+
+    // 3. EOI to LAPIC
+    lapic_write(LAPIC_EOI, 0);
+
+    // NOTE: No need to neutralize task_switch_rsp here — it is now per-CPU
+    // (read via GS base in assembly), so an AP can never steal the BSP's
+    // pending task switch.
+}
+
+#define SHOOTDOWN_TIMEOUT 50000000ULL  // ~50M iterations, rough safety net
+
+void smp_tlb_shootdown(virt_addr_t addr) {
+    if (!smp_tasking_ready) {
+        // Issue #1: Use raw invlpg directly — no dependency cycle through mmu_invlpg
+        asm volatile("invlpg (%0)" : : "r"(addr) : "memory");
+        return;
+    }
+
+    uint64_t flags = spin_lock_irqsave(&global_shootdown.lock);
+    
+    global_shootdown.addr = addr;
+    // Issue #2: Record the initiator's CR3 so receivers can filter by address space
+    global_shootdown.target_cr3 = get_cr3();
+    
+    // Issue #4: mfence — guarantee page table writes are globally visible
+    // before any remote CPU executes invlpg
+    asm volatile("mfence" ::: "memory");
+    
+    // Broadcast to all but self
+    uint32_t targets = ap_ready_flags | (1 << 0); // Include BSP
+    targets &= ~(1 << get_cpu_local()->id);
+    
+    global_shootdown.pending_mask = targets;
+    
+    // All Excluding Self, Fixed delivery, Edge, Assert | Vector 0x41
+    lapic_write(0x310, 0);
+    lapic_write(0x300, 0x000C0000 | 0x41);
+    
+    // Issue #3: Timeout-guarded wait to prevent permanent deadlock
+    uint64_t timeout = SHOOTDOWN_TIMEOUT;
+    while (global_shootdown.pending_mask != 0) {
+        asm volatile("pause");
+        if (--timeout == 0) {
+            char s[20];
+            kprint("[SMP] SHOOTDOWN TIMEOUT! pending_mask=0x");
+            hex_to_ascii(global_shootdown.pending_mask, s);
+            kprint(s);
+            kprint("\n");
+            // Force-clear stale bits so the next shootdown doesn't
+            // inherit them and immediately timeout again.
+            global_shootdown.pending_mask = 0;
+            break;
+        }
+    }
+    
+    spin_unlock_irqrestore(&global_shootdown.lock, flags);
+}
 
 // AP entry function called from assembly trampoline
 void ap_entry(int cpu_id) {
@@ -54,7 +161,9 @@ void ap_entry(int cpu_id) {
     lapic_write(0xF0, 0x100 | 0xFF);
 
     // 3. Signal BSP that this AP is ready
-    ap_ready_flags |= (1 << cpu_id);
+    // Atomic OR — two APs may execute this concurrently (QEMU 4+ CPUs),
+    // and a plain |= is a non-atomic RMW that can lose a bit.
+    __sync_fetch_and_or(&ap_ready_flags, 1 << cpu_id);
 
     // 4. Spin-wait until BSP signals tasking is ready
     while (!smp_tasking_ready) {
@@ -126,6 +235,9 @@ void smp_start_aps(void) {
     extern gdt_ptr_t gdt_ptr;
 
     kprint("[SMP] Starting APs...\n");
+
+    // Register TLB shootdown handler
+    register_interrupt_handler(0x41, smp_tlb_handler);
 
     uint8_t *t = (uint8_t*)TRAMPOLINE_VIRT;
     kprint("[SMP] Trampoline bytes at 0x70000:\n");

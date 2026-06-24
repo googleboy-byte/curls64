@@ -162,6 +162,8 @@ void isr_install() {
     extern void isr64(void);
     extern void isr255(void);
     set_idt_gate(0x40, (uint64_t)isr64, 0x8E);
+    extern void isr65(void);
+    set_idt_gate(0x41, (uint64_t)isr65, 0x8E);
     set_idt_gate(0xFF, (uint64_t)isr255, 0x8E);
 
     set_idt_gate(0x30, (uint64_t)isr80, 0x8E); // Reuse isr80 stub for test (vector 80 decimal → int_no=80)

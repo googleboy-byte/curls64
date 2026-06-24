@@ -69,10 +69,15 @@ void mmu_switch(mmu_context_t *ctx);
 extern int mmu_high_active;
 
 /**
- * @brief Invalidate a single TLB entry.
+ * @brief Raw architecture-level TLB invalidation.
  */
-static inline void mmu_invlpg(virt_addr_t addr) {
+static inline void arch_mmu_invlpg(virt_addr_t addr) {
     asm volatile("invlpg (%0)" : : "r"(addr) : "memory");
 }
+
+/**
+ * @brief Invalidate a single TLB entry (SMP-aware).
+ */
+void mmu_invlpg(virt_addr_t addr);
 
 #endif // MMU_H
