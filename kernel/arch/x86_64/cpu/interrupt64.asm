@@ -8,6 +8,12 @@
 
 ; Common ISR code
 isr_common_stub:
+    ; Check if interrupt came from user-space (saved CS is at rsp + 24)
+    test qword [rsp + 24], 3
+    jz .skip_swap_entry
+    swapgs
+.skip_swap_entry:
+
     ; 1. Save CPU state (r15-r8, rbp, rdi, rsi, rdx, rcx, rbx, rax)
     ; Stack Frame Layout (Matches registers_t):
     ; [rsp + 0x00] r15
@@ -66,13 +72,22 @@ isr_common_stub:
     cli
 
     ; Handle task switch if requested (needed for schedule() in UABI_EXIT etc.)
-    ; Per-CPU: read this CPU's _task_switch_rsp via GS base
-    mov rax, [gs:CPU_LOCAL_TASK_SWITCH_RSP]
-    test rax, rax
+    ; Per-CPU: read this CPU's _task_switch_rsp via GS base MSR (rdmsr)
+    push rcx
+    push rdx
+    mov ecx, 0xC0000101  ; IA32_GS_BASE
+    rdmsr
+    shl rdx, 32
+    or rax, rdx          ; rax = cpu_local
+    pop rdx
+    pop rcx
+    
+    mov rbx, [rax + CPU_LOCAL_TASK_SWITCH_RSP]
+    test rbx, rbx
     jz .no_switch
     
-    mov qword [gs:CPU_LOCAL_TASK_SWITCH_RSP], 0
-    mov rsp, rax
+    mov qword [rax + CPU_LOCAL_TASK_SWITCH_RSP], 0
+    mov rsp, rbx
 
 .no_switch:
     add rsp, 16 ; Discard saved gs and fs. Popping them would clear their MSR bases!
@@ -98,10 +113,22 @@ isr_common_stub:
     pop rax
     
     add rsp, 16 ; int_no, err_code
+    
+    ; Check if returning to user-space (saved CS is at rsp + 8)
+    test qword [rsp + 8], 3
+    jz .skip_swap_exit
+    swapgs
+.skip_swap_exit:
     iretq
 
 ; Common IRQ code
 irq_common_stub:
+    ; Check if interrupt came from user-space (saved CS is at rsp + 24)
+    test qword [rsp + 24], 3
+    jz .irq_skip_swap_entry
+    swapgs
+.irq_skip_swap_entry:
+
     push rax
     push rbx
     push rcx
@@ -130,13 +157,22 @@ irq_common_stub:
     cld
     call irq_handler
 
-    ; Per-CPU: read this CPU's _task_switch_rsp via GS base
-    mov rax, [gs:CPU_LOCAL_TASK_SWITCH_RSP]
-    test rax, rax
+    ; Per-CPU: read this CPU's _task_switch_rsp via GS base MSR (rdmsr)
+    push rcx
+    push rdx
+    mov ecx, 0xC0000101  ; IA32_GS_BASE
+    rdmsr
+    shl rdx, 32
+    or rax, rdx          ; rax = cpu_local
+    pop rdx
+    pop rcx
+    
+    mov rbx, [rax + CPU_LOCAL_TASK_SWITCH_RSP]
+    test rbx, rbx
     jz .irq_no_switch
     
-    mov qword [gs:CPU_LOCAL_TASK_SWITCH_RSP], 0
-    mov rsp, rax
+    mov qword [rax + CPU_LOCAL_TASK_SWITCH_RSP], 0
+    mov rsp, rbx
 
 .irq_no_switch:
     add rsp, 16 ; Discard saved gs and fs. Popping them would clear their MSR bases!
@@ -162,6 +198,12 @@ irq_common_stub:
     pop rax
     
     add rsp, 16
+    
+    ; Check if returning to user-space (saved CS is at rsp + 8)
+    test qword [rsp + 8], 3
+    jz .irq_skip_swap_exit
+    swapgs
+.irq_skip_swap_exit:
     iretq
 
 %macro ISR_NOERRCODE 1
@@ -226,3 +268,10 @@ ISR_ERRCODE 17
     %assign i i+1
     %assign j j+1
 %endrep
+
+global irq_lapic_timer
+irq_lapic_timer:
+    push qword 0
+    push qword 0x40
+    jmp irq_common_stub
+

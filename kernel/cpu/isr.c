@@ -159,9 +159,9 @@ void isr_install() {
     set_idt_gate(45, (uint64_t)irq13, 0x8E);
     set_idt_gate(46, (uint64_t)irq14, 0x8E);
     set_idt_gate(47, (uint64_t)irq15, 0x8E);
-    extern void isr64(void);
+    extern void irq_lapic_timer(void);
     extern void isr255(void);
-    set_idt_gate(0x40, (uint64_t)isr64, 0x8E);
+    set_idt_gate(0x40, (uint64_t)irq_lapic_timer, 0x8E);
     extern void isr65(void);
     set_idt_gate(0x41, (uint64_t)isr65, 0x8E);
     set_idt_gate(0xFF, (uint64_t)isr255, 0x8E);

@@ -28,14 +28,7 @@ void timer_callback(registers_t *regs) {
     }
     spin_unlock(&sq_lock);
 
-#ifdef ARCH_X86_64
-    extern int use_lapic_timer;
-    if (use_lapic_timer && regs->int_no == 0x40) {
-        extern void send_eoi(uint32_t);
-        send_eoi(0x40);
-        task_switch(regs);
-    }
-#endif
+
 }
 
 void init_timer(uint32_t freq) {

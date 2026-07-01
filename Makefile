@@ -334,6 +334,15 @@ docker64:
 docker64-debug:
 	docker compose run curls-os-dev make run-grub64-verify-debug
 
+run-grub64-verify-trace: build/kernel64_verify.elf $(IMG) | $(LOG_DIR) $(ISO_DIR)
+	cp $(BUILD_DIR)/kernel64_verify.elf $(ISO_DIR)/boot/kernel.elf
+	printf 'set timeout=0\nset default=0\nmenuentry \"Curls x64 Verify Trace\" {\n  multiboot2 /boot/kernel.elf\n  boot\n}\n' > $(ISO_DIR)/boot/grub/grub.cfg
+	grub-mkrescue -o $(ISO_IMG) $(ISO_DIR)
+	bash scripts/run_trace.sh
+
+docker64-trace:
+	docker compose run curls-os-dev make run-grub64-verify-trace
+
 live-usb: iso
 	sudo FORCE=$(FORCE) bash scripts/make_live_usb.sh $(ISO_IMG)
 

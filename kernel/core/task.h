@@ -74,6 +74,7 @@ typedef struct task_struct {
     struct task_struct *sleep_next; // Next in sorted sleep queue (NULL = not queued)
     int      exit_code;          // Exit code for parent to reap
     uint32_t ticks;              // CPU ticks consumed by this task
+    int32_t cpu_id;              // -1 = unclaimed; 0+ = running on that CPU
 } task_t;
 
 typedef struct cpu_local{

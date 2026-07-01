@@ -112,7 +112,14 @@ int mmu_map_page(mmu_context_t *ctx, virt_addr_t virt, phys_addr_t phys, uint64_
     }
     
     pt->entries[PT_IDX(virt)] = (phys & ~0xFFFULL) | flags | MMU_PRESENT;
-    mmu_invlpg(virt);
+    if (is_kernel) {
+        // Kernel pages are shared across all address spaces — full cross-core shootdown needed
+        mmu_invlpg(virt);
+    } else {
+        // User PD: not loaded on any other CPU during map, local invlpg is sufficient.
+        // Avoids sending IPIs to APs that have IF=0 inside their timer handlers.
+        arch_mmu_invlpg(virt);
+    }
     if (is_kernel) {
         spin_unlock(&pgtable_lock);
     }
@@ -132,7 +139,13 @@ void mmu_unmap_page(mmu_context_t *ctx, virt_addr_t virt) {
     mmu_table_t *pt = phys_to_virt(pd->entries[PD_IDX(virt)] & ~0xFFFULL);
     
     pt->entries[PT_IDX(virt)] = 0;
-    mmu_invlpg(virt);
+    // User PD unmaps don't need cross-core shootdown — the PD is about to be freed,
+    // and any CPU that had this CR3 loaded will get a full TLB flush on CR3 switch.
+    if (ctx == kernel_directory) {
+        mmu_invlpg(virt);
+    } else {
+        arch_mmu_invlpg(virt);
+    }
 }
 
 void mmu_switch(mmu_context_t *ctx) {

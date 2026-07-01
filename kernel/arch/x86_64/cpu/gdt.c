@@ -80,6 +80,15 @@ void init_gdt() {
     kprint("  - [x64] GDT reloaded.\n");
 }
 
+static inline void write_kernel_gs_base(uint64_t val) {
+    asm volatile(
+        "wrmsr"
+        :: "c"(0xC0000102UL),
+           "a"((uint32_t)(val & 0xFFFFFFFF)),
+           "d"((uint32_t)(val >> 32))
+    );
+}
+
 void cpu_init(int cpu_id) {
     kprint("  - [x64] CPU Init: ");
     char sid[10]; int_to_ascii(cpu_id, sid); kprint(sid); kprint("\n");
@@ -112,6 +121,7 @@ void cpu_init(int cpu_id) {
     
     // Store pointer to this CPU's local struct in GS base
     write_gs_base((uint64_t)&cpu_local[cpu_id]);
+    write_kernel_gs_base((uint64_t)&cpu_local[cpu_id]);
     char s[16];
     kprint("[CPU"); int_to_ascii(cpu_id, s); kprint(s);
     kprint("] GS base set to cpu_local @ 0x");

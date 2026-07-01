@@ -198,6 +198,7 @@ void vfs_canonicalize_path(char *dest, const char *src) {
     char buf[512];
     uint32_t buf_len = 0;
 
+
     // Handle relative vs absolute
     if (src[0] != '/') {
         if (current_task) {

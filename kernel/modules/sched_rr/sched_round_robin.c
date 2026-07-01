@@ -22,12 +22,25 @@ int round_robin_pick_next(kabi_task_t **out) {
         next_task = current_task->next ? (task_t*)current_task->next : (task_t*)ready_queue;
     }
 
-    while (next_task && next_task->state != TASK_READY && next_task != (task_t*)current_task) {
+    task_t *start_task = next_task;
+    int first_pass = 1;
+    int rotations = 0;
+    while (next_task && (first_pass || next_task != start_task)) {
+        first_pass = 0;
+        if (next_task->state == TASK_READY &&
+            (next_task->cpu_id == -1 ||
+             next_task->cpu_id == (int32_t)get_cpu_local()->id)) {
+            break;
+        }
         next_task = next_task->next;
         if (!next_task) next_task = (task_t*)ready_queue;
+        if (++rotations > MAX_TASKS + 2) break;
     }
 
-    if (!next_task) {
+    if (!next_task ||
+        next_task->state != TASK_READY ||
+        !(next_task->cpu_id == -1 ||
+          next_task->cpu_id == (int32_t)get_cpu_local()->id)) {
         *out = (kabi_task_t*)current_task;
         return KABI_SUCCESS;
     }

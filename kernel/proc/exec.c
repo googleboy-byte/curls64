@@ -8,6 +8,7 @@
 #include "../core/vfs_core.h"
 #include "../cpu/isr.h"
 #include "../../include/kabi/kabi_v1.h"
+#include "../core/abi_validate.h"
 
 #ifdef ARCH_X86_64
 #define USER_STACK_TOP  0x00007FFFFFFFF000ULL
@@ -71,6 +72,12 @@ static virt_addr_t build_user_stack(page_directory_t *pd, char **argv, virt_addr
         }
 #endif
         if (!arg_str) continue; // Skip NULL arguments
+        if ((uint64_t)(uintptr_t)arg_str >= USER_ADDR_MAX) {
+            kprint("[VALIDATE FAIL] build_user_stack: argv[");
+            _validate_print_num(i);
+            kprint("] is kernel-space ptr, skipping\n");
+            continue;
+        }
         size_t len = strlen(arg_str) + 1;
         sp -= len;
         
@@ -222,6 +229,46 @@ static virt_addr_t build_user_stack(page_directory_t *pd, char **argv, virt_addr
 }
 
 int sys_execve(const char *path, char **argv, registers_t *regs) {
+#ifdef ARCH_X86_64
+    int caller_is_32bit = ((regs->cs & 0xFFFF) == 0x2B);
+#else
+    int caller_is_32bit = 1;
+#endif
+
+    // Pre-calculate argc before switching page directory
+    uint32_t argc = 0;
+    if (argv) {
+#ifdef ARCH_X86_64
+        if (caller_is_32bit) {
+            uint32_t *argv32 = (uint32_t*)argv;
+            while (argv32 && argv32[argc]) argc++;
+        } else {
+#endif
+            while (argv && argv[argc]) argc++;
+#ifdef ARCH_X86_64
+        }
+#endif
+    }
+
+    int caller_is_user = (regs->cs & 3) != 0;
+    if (caller_is_user && argv) {
+        for (uint32_t i = 0; i < argc; i++) {
+            char *arg = argv[i];
+#ifdef ARCH_X86_64
+            if (caller_is_32bit) {
+                arg = (char*)(uintptr_t)(((uint32_t*)argv)[i]);
+            }
+#endif
+            if (!arg) break;
+            if ((uint64_t)(uintptr_t)arg >= USER_ADDR_MAX) {
+                kprint("[VALIDATE FAIL] sys_execve: argv[");
+                char _n[8]; int_to_ascii((int)i, _n); kprint(_n);
+                kprint("] is kernel-space ptr\n");
+                return -KABI_EINVAL;
+            }
+        }
+    }
+
     if (kabi_debug_enabled()) {
         kprint("[EXEC] Path: "); kprint((char*)path); kprint("\n");
     }
@@ -264,26 +311,7 @@ int sys_execve(const char *path, char **argv, registers_t *regs) {
         elf_stack_size = 0x8000; // 32KB for 64-bit
     }
 
-#ifdef ARCH_X86_64
-    int caller_is_32bit = ((regs->cs & 0xFFFF) == 0x2B);
-#else
-    int caller_is_32bit = 1;
-#endif
 
-    // Pre-calculate argc before switching page directory
-    uint32_t argc = 0;
-    if (argv) {
-#ifdef ARCH_X86_64
-        if (caller_is_32bit) {
-            uint32_t *argv32 = (uint32_t*)argv;
-            while (argv32 && argv32[argc]) argc++;
-        } else {
-#endif
-            while (argv && argv[argc]) argc++;
-#ifdef ARCH_X86_64
-        }
-#endif
-    }
 
     virt_addr_t new_sp = build_user_stack(new_pd, argv, elf_stack_top, elf_stack_size, caller_is_32bit);
     if (!new_sp) {

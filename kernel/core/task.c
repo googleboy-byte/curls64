@@ -40,16 +40,51 @@ task_t *get_idle_task(void) {
 }
 
 task_t *create_ap_idle_task(int cpu_id, uint64_t stack_top) {
+    (void)stack_top; // Discard boot stack; allocate a fresh one to prevent corruption
     task_t *idle = (task_t*)kmalloc(sizeof(task_t), 16, 0);
     memory_set((uint8_t*)idle, 0, sizeof(task_t));
-    idle->kernel_stack      = stack_top;
-    idle->kernel_stack_base = stack_top - 8192;
+    idle->cpu_id = -1;
     idle->state    = TASK_READY;
     idle->id       = 1000 + cpu_id;
     idle->page_directory = kernel_directory;
     idle->magic = TASK_MAGIC;
-    // DO NOT add to ready_queue
-    // AP idle tasks are private to their CPU
+
+    // Allocate a fresh, isolated stack (16KB) matching BSP's idle task
+    phys_addr_t phys;
+    virt_addr_t base = (virt_addr_t)kmalloc(0x4000, 1, &phys);
+    if (!base) panic("create_ap_idle_task: Out of memory for AP idle stack");
+
+    // Poison and protect stack bounds
+    memory_set((uint8_t*)base, 0xCC, 0x4000);
+    *(uintptr_t*)base = STACK_MAGIC;
+
+    idle->kernel_stack_base = base;
+    idle->kernel_stack      = base + 0x4000;
+
+    uint64_t *stack = (uint64_t*)idle->kernel_stack;
+
+    // Build initial task frame for context switch
+    extern void idle_task(void);
+    *(--stack) = 0x10;                 // SS
+    *(--stack) = (uint64_t)stack + 8;  // RSP
+    *(--stack) = 0x202;                // RFLAGS (IF=1)
+    *(--stack) = 0x08;                 // CS
+    *(--stack) = (uint64_t)idle_task;  // RIP
+
+    *(--stack) = 0;                    // err_code
+    *(--stack) = 32;                   // int_no
+
+    for (int r = 0; r < 15; r++) {
+        *(--stack) = 0;                // Registers r15-rax
+    }
+
+    *(--stack) = 0x10;                 // ds
+    *(--stack) = 0x10;                 // es
+    *(--stack) = 0x10;                 // fs
+    *(--stack) = 0x10;                 // gs
+
+    idle->user_esp = (virt_addr_t)stack;
+
     register_cpu_idle_task(cpu_id, idle);
     
     char buf[16], buf2[16];
@@ -226,6 +261,7 @@ void init_tasking() {
     // Allocate current_task to represent the kernel boot sequence (PID 1)
     current_task = (task_t*)kmalloc(sizeof(task_t), 0, 0);
     memory_set((uint8_t*)current_task, 0, sizeof(task_t));
+    current_task->cpu_id = 0;
     current_task->state = TASK_RUNNING;
     current_task->page_directory = kernel_directory;
     current_task->magic = TASK_MAGIC;
@@ -284,9 +320,9 @@ void init_tasking() {
     hex64_to_ascii(idle->kernel_stack, s_top);
     kprint("[BOOT] Idle Task (PID 2) Stack: "); kprint(s_base); kprint(" - "); kprint(s_top); kprint("\n");
 
-    // Link circularly: boot -> idle -> boot
-    current_task->next = idle;
-    idle->next = (task_t*)ready_queue;
+    // Link circularly: only boot -> boot (ready_queue has only PID 1)
+    current_task->next = (task_t*)ready_queue;
+    idle->next = NULL;
 
     kprint("  - Tasking initialized (Boot context preserved).\n");
     
@@ -303,6 +339,7 @@ task_t *create_kernel_task(void (*entry)(void)){
     task_t *new_task = (task_t*)kmalloc(sizeof(task_t), 0, 0);
     if (!new_task) panic("create_kernel_task: Out of memory for task_t");
     memory_set((uint8_t*)new_task, 0, sizeof(task_t));
+    new_task->cpu_id = -1;
     spin_lock(&pid_lock);
     new_task->id = next_pid++;
     spin_unlock(&pid_lock);
@@ -369,7 +406,11 @@ task_t *create_kernel_task(void (*entry)(void)){
     uint32_t f = irq_save();
     spin_lock(&rq_lock);
     task_t *tail = (task_t*)ready_queue;
-    while (tail->next && tail->next != ready_queue) tail = tail->next;
+    int tail_guard = 0;
+    while (tail->next && tail->next != ready_queue) {
+        if (++tail_guard > MAX_TASKS + 2) panic("READY QUEUE LOOP CORRUPTION");
+        tail = tail->next;
+    }
     new_task->next = (task_t*)ready_queue;
     tail->next = new_task;
     spin_unlock(&rq_lock);
@@ -416,6 +457,7 @@ int sys_fork(registers_t *regs) {
     if (!child) { spin_unlock(&pid_lock); panic("sys_fork: Out of memory for task_t"); }
     if (kabi_debug_enabled()) kprint("OK ");
     memory_set((uint8_t*)child, 0, sizeof(task_t));
+    child->cpu_id = -1;
     child->id = next_pid++;
     spin_unlock(&pid_lock);
     child->page_directory = directory;
@@ -576,6 +618,7 @@ int spawn_process(virt_addr_t entry_point, virt_addr_t user_stack) {
     task_t *new_task = (task_t*)kmalloc(sizeof(task_t), 0, 0);
     if (!new_task) { spin_unlock(&pid_lock); panic("spawn_process: Out of memory for task_t"); }
     memory_set((uint8_t*)new_task, 0, sizeof(task_t));
+    new_task->cpu_id = -1;
     new_task->id = next_pid++;
     spin_unlock(&pid_lock);
     new_task->page_directory = directory;
@@ -900,76 +943,86 @@ void reap_zombies() {
         return;
     }
 
+    // Collect up to N zombies under lock
+    task_t *to_reap[MAX_TASKS];
+    int reap_count = 0;
+
+    spin_lock(&rq_lock);
+
     task_t *task = (task_t*)ready_queue;
-    task_t *prev = 0;
-    
-    // Find previous of head
     task_t *it = (task_t*)ready_queue;
+    int guard = 0;
     while (it->next != (task_t*)ready_queue && it->next != 0) {
+        if (++guard > MAX_TASKS + 2) break;
         it = it->next;
     }
-    prev = it;
+    task_t *prev = it;
 
     task_t *start = (task_t*)ready_queue;
-    int reaped = 0;
+    guard = 0;
     
     do {
-        // Reap if:
-        // 1. It's a zombie AND we are the parent
-        // 2. It's a zombie AND we are the kernel (PID 1) - orphan reaping
-        int should_reap = (task->state == TASK_ZOMBIE) && 
+        if (++guard > MAX_TASKS + 2) break;
+
+        int should_reap = (task->state == TASK_ZOMBIE) &&
+                         (task->cpu_id == -1) &&
+                         (task != (task_t*)current_task) &&
                          (task->parent == (task_t*)current_task || current_task->id == 1 || current_task->id == 2);
 
         if (should_reap) {
-            if (task->next == task) break; // Cannot reap the last remaining task
+            if (task->next == task) break;
 
-            sleepq_remove(task); /* Ensure not dangling in sleep queue */
+            sleepq_remove(task);
 
-            spin_lock(&rq_lock);
-            // Remove from list
             prev->next = task->next;
             if (task == (task_t*)ready_queue) {
                 ready_queue = task->next;
             }
-            spin_unlock(&rq_lock);
 
-            // Free resources
-            kfree((void*)task->kernel_stack_base);
-            
-            extern void vfs_close_all_fds(void *task_ptr);
-            vfs_close_all_fds(task);
-            
+            to_reap[reap_count++] = task;
+
             task_t *to_free = task;
             task = prev->next;
 
-            // Notify scheduler
-            if (current_scheduler && current_scheduler->on_task_removed) {
-                current_scheduler->on_task_removed(to_free);
-            }
-
-            // Free paging resources (and release COW frames)
-            if (to_free->page_directory && to_free->page_directory != kernel_directory) {
-                free_page_directory(to_free->page_directory);
-            }
-
-            kfree(to_free);
-            
-            reaped++;
-            // Update start if we just reaped the original head
             if (to_free == start) {
                 start = task;
                 if (!start) break;
             }
-            
-            // If we just reaped everything back to start, break
             if (task == start) break;
-            
-            continue; // Continue with next task from same prev
+
+            if (reap_count >= MAX_TASKS) {
+                break;
+            }
+            continue;
         }
         
         prev = task;
         task = task->next;
     } while (task != start && task != 0);
+
+    spin_unlock(&rq_lock);
+
+    // Free outside lock
+    for (int i = 0; i < reap_count; i++) {
+        task_t *to_free = to_reap[i];
+
+        if (to_free->kernel_stack_base) {
+            kfree((void*)to_free->kernel_stack_base);
+        }
+        
+        extern void vfs_close_all_fds(void *task_ptr);
+        vfs_close_all_fds(to_free);
+
+        if (current_scheduler && current_scheduler->on_task_removed) {
+            current_scheduler->on_task_removed(to_free);
+        }
+
+        if (to_free->page_directory && to_free->page_directory != kernel_directory) {
+            free_page_directory(to_free->page_directory);
+        }
+
+        kfree(to_free);
+    }
 
     irq_restore(f);
 }
@@ -1017,14 +1070,14 @@ void task_switch(registers_t *regs) {
     }
 
     if (!seen_current) {
-        // Per-CPU idle tasks are not in the ready_queue by design.
-        // Also handle id==0 which means _current was not yet assigned
-        // (address 0 is readable via identity map, giving id=0).
-        if (current_task->id == 0 || current_task->id >= 1000) {
-            // AP idle/uninitialized task — not in queue, return safely.
-            return;
+        if (current_task->id == 0) {
+            return;  // _current not yet assigned
         }
-        panic("CURRENT TASK NOT IN READY QUEUE");
+        if (current_task->id < 1000 && current_task->id != 2) {
+            panic("CURRENT TASK NOT IN READY QUEUE");
+        }
+        // AP idle task (id >= 1000): not in ready_queue by design.
+        // Fall through to Phase 2 to pick real work.
     }
 
     if (irq_depth > 1) {
@@ -1067,25 +1120,46 @@ void task_switch(registers_t *regs) {
     } else {
         // Fallback: simple round-robin walk
         task_t *t = (task_t*)prev_task->next;
+        if (!t) t = (task_t*)ready_queue;
+        task_t *start_task = t;
+        int first_pass = 1;
         int rotations = 0;
-        while (t && t != prev_task) {
-            if (t->state == TASK_READY) { next_task = t; break; }
+        while (t && (first_pass || t != start_task)) {
+            first_pass = 0;
+            if (t->state == TASK_READY &&
+                (t->cpu_id == -1 || t->cpu_id == (int32_t)get_cpu_local()->id)) {
+                next_task = t;
+                break;
+            }
             t = t->next;
+            if (!t) t = (task_t*)ready_queue;
             if (++rotations > MAX_TASKS + 2) break;
         }
     }
 
     // If no other task is ready, just continue with the current one
     if (next_task == prev_task) {
-        prev_task->state = TASK_RUNNING;
-        spin_unlock(&rq_lock);
-        return;
+        if (prev_task->state == TASK_ZOMBIE || prev_task->state == TASK_WAITING) {
+            task_t *idle = get_idle_task_for_cpu((int)get_cpu_local()->id);
+            if (idle && idle != prev_task) {
+                next_task = idle;
+            } else {
+                spin_unlock(&rq_lock);
+                return;
+            }
+        } else {
+            if (prev_task->state == TASK_READY)
+                prev_task->state = TASK_RUNNING;
+            spin_unlock(&rq_lock);
+            return;
+        }
     }
 
     // Phase 3: Transition to the incoming task
-    // Mark next as RUNNING while still holding rq_lock so no other core can pick it
+    prev_task->cpu_id = -1;
     current_task = next_task;
     current_task->state = TASK_RUNNING;
+    current_task->cpu_id = (int32_t)get_cpu_local()->id;
     spin_unlock(&rq_lock);
 
     KTRACE2(KTRACE_SCHED_SWITCH, prev_task->id, next_task->id);
@@ -1125,7 +1199,21 @@ void task_switch(registers_t *regs) {
          current_task->user_esp >= current_task->kernel_stack) &&
         (current_task->user_esp < cpu->kstack_base ||
          current_task->user_esp >= cpu->kstack_top)) {
-        kprint("BAD ESP: 0x"); char s[16]; hex_to_ascii(current_task->user_esp, s); kprint(s); kprint("\n");
+        char s[32];
+        kprint("DIAG ESP OUT OF KSTACK: ID=");
+        int_to_ascii(current_task->id, s); kprint(s);
+        kprint(" user_esp=0x");
+        hex64_to_ascii(current_task->user_esp, s); kprint(s);
+        kprint(" task_kstack_base=0x");
+        hex64_to_ascii(current_task->kernel_stack_base, s); kprint(s);
+        kprint(" task_kstack=0x");
+        hex64_to_ascii(current_task->kernel_stack, s); kprint(s);
+        kprint(" cpu_kstack_base=0x");
+        hex64_to_ascii(cpu->kstack_base, s); kprint(s);
+        kprint(" cpu_kstack_top=0x");
+        hex64_to_ascii(cpu->kstack_top, s); kprint(s);
+        kprint("\n");
+        kprint("BAD ESP: 0x"); char s_bad[16]; hex_to_ascii(current_task->user_esp, s_bad); kprint(s_bad); kprint("\n");
         panic("TASK SWITCH ESP OUT OF KSTACK");
     }
     if (current_task->user_esp & 7) panic("ESP NOT 64-BIT ALIGNED (Restore)");

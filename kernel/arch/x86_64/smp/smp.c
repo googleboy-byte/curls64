@@ -172,7 +172,8 @@ void ap_entry(int cpu_id) {
 
     // Assign this AP's dedicated idle task
     extern task_t *get_idle_task_for_cpu(int cpu_id);
-    get_cpu_local()->_current = get_idle_task_for_cpu(cpu_id);
+    task_t *idle = get_idle_task_for_cpu(cpu_id);
+    get_cpu_local()->_current = idle;
     asm volatile("" ::: "memory"); // Compiler barrier: ensure _current is written
 
     // Now safe to start timer — ready_queue exists
@@ -181,12 +182,18 @@ void ap_entry(int cpu_id) {
     // 5. Enable interrupts
     extern void set_idt(void);
     set_idt();
-    asm volatile("sti");
 
-    // 6. Enter scheduler idle loop
-    while (1) {
-        asm volatile("hlt");
-    }
+    // 6. Switch to the idle task's fresh stack, enable interrupts, and enter scheduler idle loop
+    asm volatile(
+        "mov %0, %%rsp\n\t"
+        "sti\n\t"
+        "1:\n\t"
+        "hlt\n\t"
+        "jmp 1b\n\t"
+        :
+        : "r"(idle->kernel_stack)
+        : "memory"
+    );
 }
 
 extern mmu_context_t *kernel_directory;
@@ -255,6 +262,8 @@ void smp_start_aps(void) {
         int     cpu_id  = i + 1;  // BSP is 0
 
         void *stack = kmalloc(8192, 4096, 0);
+        memory_set((uint8_t*)stack, 0xCC, 8192);
+        *(uintptr_t*)stack = STACK_MAGIC;
         uint64_t stack_top = (uint64_t)stack + 8192;
 
         *(uint32_t*)(TRAMPOLINE_VIRT + PML4_OFFSET)    = (uint32_t)get_cr3();

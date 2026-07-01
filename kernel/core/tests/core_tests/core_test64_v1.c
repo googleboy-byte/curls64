@@ -460,17 +460,25 @@ static int test_phase12() {
         t->pending_signals = 0;
         extern task_t *create_kernel_task(void (*entry)(void));
         extern void idle_task(void);
+        int pass_12_1 = 0;
+        int have_dummy = 0;
+        uint32_t irqf = irq_save();
         task_t *dummy = create_kernel_task(idle_task);
+        have_dummy = dummy != NULL;
         if (dummy) {
             task_deliver_signal(dummy, SIGKILL);
-            int no_bit = !(dummy->pending_signals & SIG_BIT(SIGKILL));
-            if (no_bit && dummy->state == TASK_ZOMBIE)
+            pass_12_1 = !(dummy->pending_signals & SIG_BIT(SIGKILL)) &&
+                          dummy->state == TASK_ZOMBIE;
+            reap_zombies();
+        }
+        irq_restore(irqf);
+        if (have_dummy) {
+            if (pass_12_1)
                 log_pass("12.1", "SIGKILL: uncatchable, no pending bit");
             else {
                 log_fail("12.1", "SIGKILL invariant", "bit set or task not zombie");
                 phase_success = 0;
             }
-            reap_zombies();
         } else {
             log_fail("12.1", "SIGKILL invariant", "create_kernel_task returned null");
             phase_success = 0;
@@ -605,6 +613,26 @@ static int test_phase15() {
     } else {
         log_fail("15.3", "kabi_block_read", "Did not reject invalid dev_id");
         phase_success = 0;
+    }
+
+    /* 15.4 sys_execve: invalid argv rejected */
+    {
+        extern int sys_execve(const char *path, char **argv, registers_t *regs);
+        registers_t dummy_regs;
+        memory_set((uint8_t*)&dummy_regs, 0, sizeof(registers_t));
+#ifdef ARCH_X86_64
+        dummy_regs.cs = 0x23; // User CS — testing user-space argv validation path
+#endif
+        char *bad_argv[2];
+        bad_argv[0] = (char*)0xFFFFFFFFFFFFFFFFULL;
+        bad_argv[1] = NULL;
+        int res = sys_execve("/BIN/HELLO64.ELF", bad_argv, &dummy_regs);
+        if (res == -KABI_EINVAL) {
+            log_pass("15.4", "sys_execve: invalid argv rejected (EINVAL)");
+        } else {
+            log_fail("15.4", "sys_execve", "Did not reject invalid argv");
+            phase_success = 0;
+        }
     }
 
     return phase_success;

@@ -329,16 +329,14 @@ void shell_user_input(char *input) {
         }
 
         if (kabi_debug_enabled()) kprint("[USER] Executing /BIN/INIT.ELF (Background) ...\n");
-        char *init_argv[] = {"/BIN/INIT.ELF", 0};
+        static char *init_argv[] = {"/BIN/INIT.ELF", 0};
         execute_elf("/BIN/INIT.ELF", 1, init_argv, 0); // wait=0 (Background)
 
 #ifdef ARCH_X86_64
-        if (kabi_debug_enabled()) kprint("[USER] Starting User Shell /BIN/SH64.ELF (Background)...\n");
-        char *sh_argv[] = {"/BIN/SH64.ELF", 0};
+        static char *sh_argv[] = {"/BIN/SH64.ELF", 0};
         execute_elf("/BIN/SH64.ELF", 1, sh_argv, 0); // wait=0 (Background)
 #else
-        if (kabi_debug_enabled()) kprint("[USER] Starting User Shell /BIN/SH.ELF (Background)...\n");
-        char *sh_argv[] = {"/BIN/SH.ELF", 0};
+        static char *sh_argv[] = {"/BIN/SH.ELF", 0};
         execute_elf("/BIN/SH.ELF", 1, sh_argv, 0); // wait=0 (Background)
 #endif
     } else if (startsWith(input, "KILL ")) {
