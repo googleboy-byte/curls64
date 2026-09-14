@@ -16,12 +16,7 @@ page_directory_t *kernel_directory = 0;
 mmu_context_t *kernel_directory = 0;
 #endif
 
-/* Current page directory */
-#ifndef ARCH_X86_64
-page_directory_t *current_directory = 0;
-#else
-mmu_context_t *current_directory = 0;
-#endif
+/* Current page directory — now per-CPU, see cpu_local.h macro */
 
 /* Frame reference counting */
 /* x86_64: Dynamically sized from Multiboot2 memory map */

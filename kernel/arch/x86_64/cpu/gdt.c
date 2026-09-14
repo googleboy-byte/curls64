@@ -100,6 +100,7 @@ void cpu_init(int cpu_id) {
     cpu->_current = 0;
     cpu->_irq_depth = 0;
     cpu->timer_ticks = 0;
+    cpu->_current_directory = (page_directory_t*)kernel_directory; // SMP-safe: each CPU starts with kernel PD
     cpu->kstack_base = (virt_addr_t)kmalloc(8192, 4096, 0);
     cpu->kstack_top = cpu->kstack_base + 8192;
     // Set kernel stack for this CPU's TSS

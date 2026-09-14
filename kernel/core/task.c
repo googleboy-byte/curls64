@@ -152,7 +152,7 @@ void sleepq_remove(task_t *t) {
 
 // Some externs are needed to manipulate the kernel stack and page directory
 extern page_directory_t *kernel_directory;
-extern page_directory_t *current_directory;
+/* current_directory — now per-CPU, see cpu_local.h macro */
 
 uint32_t next_pid = 1;
 

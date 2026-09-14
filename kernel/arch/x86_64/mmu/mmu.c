@@ -6,6 +6,7 @@
 #include "../../../modules/drivers/screen.h"
 #include "../smp/smp.h"
 #include <spinlock.h>
+#include <cpu_local.h>
 
 extern mmu_context_t *kernel_directory;
 static spinlock_t pgtable_lock = SPINLOCK_INIT;
@@ -23,7 +24,7 @@ static spinlock_t pgtable_lock = SPINLOCK_INIT;
 
 // Flag to indicate if higher-half mapping (PHYSMAP) is active
 int mmu_high_active = 0;
-extern mmu_context_t *current_directory;
+/* current_directory — now per-CPU, see cpu_local.h macro */
 
 // Helper to get a virtual pointer to a physical page frame
 // Using the PHYSMAP concept from Phase 0

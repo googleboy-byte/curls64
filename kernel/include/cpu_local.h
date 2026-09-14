@@ -29,3 +29,4 @@ static inline cpu_local_t *get_cpu_local(void) {
 // On SMP they will expand to the per-core struct automatically.
 #define current_task      (get_cpu_local()->_current)
 #define irq_depth         (get_cpu_local()->_irq_depth)
+#define current_directory (get_cpu_local()->_current_directory)
