@@ -1,4 +1,5 @@
 #include "keyboard.h"
+#include <spinlock.h>
 #include "../../cpu/ports.h"
 #include "../../cpu/isr.h"
 #include "screen.h"
@@ -36,19 +37,27 @@ static volatile int caps_lock = 0;
 static char kb_queue[KB_QUEUE_SIZE];
 static volatile int kb_head = 0;
 static volatile int kb_tail = 0;
+static spinlock_t kb_lock = SPINLOCK_INIT;
 
 static void kb_enqueue(char c) {
+    uint64_t flags = spin_lock_irqsave(&kb_lock);
     int next = (kb_head + 1) % KB_QUEUE_SIZE;
     if (next != kb_tail) {
         kb_queue[kb_head] = c;
         kb_head = next;
     }
+    spin_unlock_irqrestore(&kb_lock, flags);
 }
 
 static int kb_dequeue(char *c) {
-    if (kb_head == kb_tail) return 0;
+    uint64_t flags = spin_lock_irqsave(&kb_lock);
+    if (kb_head == kb_tail) {
+        spin_unlock_irqrestore(&kb_lock, flags);
+        return 0;
+    }
     *c = kb_queue[kb_tail];
     kb_tail = (kb_tail + 1) % KB_QUEUE_SIZE;
+    spin_unlock_irqrestore(&kb_lock, flags);
     return 1;
 }
 

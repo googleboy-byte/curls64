@@ -32,3 +32,23 @@ AI worked through all 5 bugs incrementally with build verification after each:
 
 **What we used / didn't use:**
 Used all 5 fixes as proposed. Each was mechanically verified via `make run-grub64-verify` (all 21 test phases + 18 UABI validation tests pass). Item 6 (enable AP scheduling) deferred per plan — requires separate confirmation before attempting.
+
+---
+
+## 2026-09-30 · SMP 4-Core Stabilization and Pre-Merge Documentation Prep
+
+**Prompt:**
+User requested prep for the final commit on `arch/smp` prior to extensive pre-merge testing and merging to `main`. Specified no code changes, only complete documentation updates following the repository's doc maintenance protocol.
+
+**Response summary:**
+Updated all repository documentation:
+1. `docs/HANDOVER.md`: Comprehensive 4-core SMP handover report, listing resolved bugs, verification evidence across two boot runs, and pre-merge protocol.
+2. `curls-x64-port_plan.md`: Updated roadmap todo `production-smp-readiness` to completed.
+3. `README.md`: Updated features and stability status tables.
+4. `docs/01_getting_started/roadmap.md`: Updated Phase 3 & Phase 5 milestone check-boxes.
+5. `docs/ai/`: Added entries in `issues.md`, `adrs.md`, `plan-evolution.md`, `postmortem.md`, and `prompts.md`.
+6. `docs/diagnosis/2026-09-30_smp_4core_stabilization.md`: Added diagnosis resolution document.
+
+**What we used / didn't use:**
+All documentation updates performed cleanly without any code modifications as instructed.
+

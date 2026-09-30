@@ -241,3 +241,58 @@ Option 2, with a guard `if (ctx == kernel_directory)` to only lock for the share
 
 **Rationale:**
 Option 1 doesn't protect the full sequence — core A could allocate a PDPT and core B could see the PML4 entry but race on the PDPT's PD slot before A fills it. The lock must span the entire walk. Option 3 is wasteful: per-process directories are never shared across cores (each process runs on one core at a time, and `clone_page_directory` creates a private copy). Locking only `kernel_directory` avoids contention on the common case (user-space page faults) while protecting the genuinely shared structure.
+
+---
+
+## Per-CPU `current_directory` tracking in `cpu_local_t` for SMP MMU Isolation
+
+**Context:**
+`current_directory` in `kernel/cpu/paging.c` was a single global variable. On single-CPU systems (`-smp 1`), only one CPU updated or read `current_directory`. On multi-core (`-smp 4`), when an AP core executed a context switch, it overwrote `current_directory`. If the BSP concurrently suffered a Copy-On-Write (COW) page fault, `page_fault()` inspected the wrong page table structure via `current_directory`, returned NULL, and terminated userland processes (`sh64`).
+
+**Options considered:**
+1. Global spinlock around page fault handling and page directory switching.
+2. Move `current_directory` into `cpu_local_t` per-CPU storage, accessible via `get_cpu_local()->current_directory`.
+3. Lookup `current_directory` dynamically from `get_current_task()->page_directory` on every fault.
+
+**Decision:**
+Option 2 — Store `current_directory` in `cpu_local_t`.
+
+**Rationale:**
+Option 1 creates severe cross-core contention during page faults and context switches. Option 3 fails when the kernel is executing in kernel tasks or early boot paths where `get_current_task()` may not point to an active user process page directory. Option 2 provides zero-contention, lock-free access to the executing CPU's active page directory, maintaining complete MMU isolation across all cores.
+
+---
+
+## Spinlock-Protected Screen Driver and Keyboard Ring Buffers
+
+**Context:**
+On multi-core, keyboard interrupt handlers running on one CPU and userland polling tasks reading stdin on another CPU accessed key ring buffers concurrently. Similarly, multiple cores invoking `kprint` scrambled serial UART and screen console output.
+
+**Options considered:**
+1. Disable interrupts globally via `cli`/`sti` during I/O.
+2. Dedicated spinlocks: `key_buf_lock` in `keyboard.c` and `screen_lock` in `screen.c`.
+3. Lockless lock-free ring buffer algorithms.
+
+**Decision:**
+Option 2 — Dedicated spinlocks for driver buffers and serial output.
+
+**Rationale:**
+`cli`/`sti` only disables interrupts on the local CPU core, leaving AP cores free to race on shared buffers. Lock-free ring buffers add complexity without solving serial port transmitter hardware races. Dedicated spinlocks guarantee multi-core atomicity with minimal overhead.
+
+---
+
+## CPU Yield (`hlt`) in Zombie Wait Loops (`wait_for_all_children`)
+
+**Context:**
+`wait_for_all_children()` in task management executed a tight busy-loop checking for child process termination. On SMP, this consumed 100% CPU on waiting cores and starved other tasks.
+
+**Options considered:**
+1. Plain busy-loop without yielding.
+2. Insert `asm volatile("hlt")` CPU yield between loop iterations.
+3. Complex sleep/wake event queue for zombie state changes.
+
+**Decision:**
+Option 2 — `hlt` yield between loop iterations.
+
+**Rationale:**
+Option 1 starves other cores and wastes power. Option 3 requires extending the scheduler event notification architecture for zombie reaping. Option 2 cleanly halts the waiting CPU until the next timer or interrupt fires, providing responsive process cleanup without CPU starvation.
+

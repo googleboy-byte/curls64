@@ -176,11 +176,28 @@ static void capture_output(char *command, char *output, int max) {
         uabi_dup2(p[1], 1);
         uabi_close(p[0]);
         uabi_close(p[1]);
-        // We need a version of parse_and_execute that doesn't expand variables again 
-        // or just use the existing one but be careful.
-        // Actually, command is already expanded here if called from run_simple_command.
-        run_simple_command(command);
-        uabi_exit(0);
+        /* Exec the command directly — do NOT call run_simple_command()
+         * which would fork AGAIN, creating a grandchild that inherits
+         * fd 1 (pipe write end). The grandchild's copy keeps writers>0,
+         * so the parent's pipe_read() blocks forever waiting for EOF. */
+        char bin_path[256];
+        char *argv[16];
+        int argc = 0;
+        char cmd_copy[256];
+        ulib_strcpy(cmd_copy, command);
+        char *cp = cmd_copy;
+        while (*cp && argc < 15) {
+            while (*cp == ' ') *cp++ = '\0';
+            if (*cp == '\0') break;
+            argv[argc++] = cp;
+            while (*cp && *cp != ' ') cp++;
+        }
+        argv[argc] = 0;
+        if (argc > 0 && try_resolve_bin(argv[0], bin_path)) {
+            argv[0] = bin_path;
+            uabi_exec(argv[0], argv);
+        }
+        uabi_exit(1);
     }
     uabi_close(p[1]);
     int total = 0;
@@ -246,7 +263,13 @@ static void cmd_exec(char **argv, int resolvable) {
 
 static int try_resolve_bin(char *cmd, char *out_path) {
     ulib_strcpy(out_path, "/BIN/");
+    int base = ulib_strlen(out_path);
     ulib_strcat(out_path, cmd);
+    /* FAT32 stores filenames uppercase — uppercase the command portion */
+    for (int i = base; out_path[i]; i++) {
+        if (out_path[i] >= 'a' && out_path[i] <= 'z')
+            out_path[i] -= 32;
+    }
     ulib_strcat(out_path, ".ELF");
     uabi_stat_t st;
     if (uabi_stat(out_path, &st) == 0) return 1;

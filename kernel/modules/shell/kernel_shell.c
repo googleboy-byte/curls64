@@ -331,14 +331,12 @@ void shell_user_input(char *input) {
         if (kabi_debug_enabled()) kprint("[USER] Executing /BIN/INIT.ELF (Background) ...\n");
         static char *init_argv[] = {"/BIN/INIT.ELF", 0};
         execute_elf("/BIN/INIT.ELF", 1, init_argv, 0); // wait=0 (Background)
-
-#ifdef ARCH_X86_64
-        static char *sh_argv[] = {"/BIN/SH64.ELF", 0};
-        execute_elf("/BIN/SH64.ELF", 1, sh_argv, 0); // wait=0 (Background)
-#else
-        static char *sh_argv[] = {"/BIN/SH.ELF", 0};
-        execute_elf("/BIN/SH.ELF", 1, sh_argv, 0); // wait=0 (Background)
-#endif
+        /* NOTE: INIT.ELF execs into /BIN/SH.ELF (the 64-bit shell).
+         * Do NOT launch SH64.ELF separately — it doesn't exist on FAT32
+         * (Makefile copies sh64.elf as SH.ELF). A phantom child would
+         * die instantly as a zombie, causing wait_for_children() to
+         * return prematurely and let KABI compete for keyboard input. */
+        kprint("[USER] Single child launched (INIT->SH). KABI will block until exit.\n");
     } else if (startsWith(input, "KILL ")) {
         int pid = 0;
         char *p = input + 5;
@@ -377,6 +375,13 @@ void kernel_shell() {
 #ifdef KABI_DEBUG
     shell_user_input("CORE");
     shell_user_input("USER"); // DIAGNOSTIC run
+
+    /* Block until ALL userland children exit.
+     * Uses wait_for_all_children() which drains stale test zombies
+     * before blocking on the live INIT->SH child.                  */
+    kprint("[KABI] Blocking on all userland children...\n");
+    kabi_wait_for_all_children();
+    kprint("[KABI] All children exited. KABI shell resuming.\n");
 
     char input[256];
     while (1) {

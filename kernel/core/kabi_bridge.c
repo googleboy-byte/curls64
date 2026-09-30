@@ -160,6 +160,10 @@ void kabi_wait_for_children() {
     wait_for_children();
 }
 
+void kabi_wait_for_all_children() {
+    wait_for_all_children();
+}
+
 void kabi_kill_all_children() {
     task_send_sigint_foreground();
 }

@@ -7,6 +7,9 @@
 #include "../../core/boot_info.h"
 #include "../../../include/module/module_abi_v1.h"
 #include <stdint.h>
+#include <spinlock.h>
+
+static spinlock_t kprint_lock = SPINLOCK_INIT;
 
 /* Declaration of private functions */
 int get_cursor_offset();
@@ -32,6 +35,7 @@ static screen_mode_t screen_mode = SCREEN_MODE_VGA_TEXT;
  * If col, row, are negative, we will use the current offset
  */
 void kprint_at(const char *message, int col, int row) {
+    uint64_t flags = spin_lock_irqsave(&kprint_lock);
     /* Set cursor if col/row are negative */
     int offset;
     if (col >= 0 && row >= 0)
@@ -50,6 +54,7 @@ void kprint_at(const char *message, int col, int row) {
         row = get_offset_row(offset);
         col = get_offset_col(offset);
     }
+    spin_unlock_irqrestore(&kprint_lock, flags);
 }
 
 void kprint(const char *message) {
@@ -57,6 +62,7 @@ void kprint(const char *message) {
 }
 
 void kprint_backspace() {
+    uint64_t flags = spin_lock_irqsave(&kprint_lock);
     int offset = get_cursor_offset()-2;
     int row = get_offset_row(offset);
     int col = get_offset_col(offset);
@@ -66,6 +72,7 @@ void kprint_backspace() {
     // print_char(0x08) already sent the first '\b'
     uart_send(' ');
     uart_send('\b');
+    spin_unlock_irqrestore(&kprint_lock, flags);
 }
 
 

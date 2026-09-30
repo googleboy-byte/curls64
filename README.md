@@ -14,14 +14,14 @@ A hobbyist **x86_64** operating system written from scratch — **modular kernel
 | Area | Status |
 |------|--------|
 | **Core** | Modular kernel framework with stable K-ABI (x86_64 native) ✅ |
-| **SMP** | Foundational Symmetric Multi-Processing (ACPI, LAPIC, IPI, Docker-verified) ✅ |
-| **Paging** | 4-level paging, **Copy-on-Write (COW)**, PHYSMAP ✅ |
-| **Heap** | Dynamic kernel heap with integrity checks ✅ |
-| **Tasks** | Preemptive scheduler, Hybrid stack model, ELF64 support ✅ |
+| **SMP** | Stabilized 4-core SMP (ACPI, LAPIC, per-CPU MMU, driver spinlocks, Docker-verified) ✅ |
+| **Paging** | 4-level paging, **Copy-on-Write (COW)**, per-CPU `current_directory` MMU isolation, PHYSMAP ✅ |
+| **Heap** | Dynamic kernel heap with integrity checks & SMP spinlocks ✅ |
+| **Tasks** | Preemptive scheduler, Hybrid stack model, ELF64 support, yield-based zombie reaping ✅ |
 | **Filesystems** | VFS, FAT32, Initrd, Pipes, FDs ✅ |
 | **User Mode** | Ring-3 isolation, ELF64 loader, U-ABI v2 ✅ |
-| **Shell** | Variables, control flow, pipes, redirections, Ctrl+C handling ✅ |
-| **Stability** | 20-phase core test suite, ABI validation, ktrace ✅ |
+| **Shell** | Variables, control flow, pipes, redirections, Ctrl+C handling, 4-core interactive execution ✅ |
+| **Stability** | 21-phase core test suite, ABI validation, ktrace, multi-core regression suite ✅ |
 
 ---
 

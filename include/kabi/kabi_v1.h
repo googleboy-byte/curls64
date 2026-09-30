@@ -167,6 +167,7 @@ void kabi_ps();
  * @brief Block until all child processes of the current task have exited.
  */
 void kabi_wait_for_children();
+void kabi_wait_for_all_children();
 
 /* --- Process Enumeration (K-ABI v2) --- */
 

@@ -30,3 +30,26 @@ For bug 1, `free()` was split into `free_internal()` (lock-free) + public `free(
 **Time spent:** ~30 minutes (mechanical fixes, identified by prior code review).
 
 **Lesson:** When porting UP→SMP, audit every `irq_save`/`irq_restore` pair — they are not cross-core synchronisation. Every shared mutable structure needs either a spinlock or an atomic operation.
+
+---
+
+## 2026-09-30 · SMP 4-Core Userland Stabilization — 5 concurrency & task handling bugs
+
+**Severity:** CRITICAL — Caused userland applications (`sh64`) to crash with Copy-On-Write (COW) page faults or hang in process cleanup loops under 4-core multi-processor execution (`-smp 4`).
+
+**Root Cause & Bugs Found:**
+
+| # | Subsystem | File(s) | Issue & Fix |
+|---|-----------|---------|-------------|
+| 1 | Paging / MMU | `kernel/cpu/paging.c`, `kernel/arch/x86_64/mmu/mmu.c` | Global `current_directory` variable overwritten when AP context switches, causing BSP COW page faults to read wrong PD and fail. **Fix**: Moved `current_directory` into `cpu_local_t` (per-CPU). |
+| 2 | Keyboard Driver | `kernel/modules/drivers/keyboard.c` | Unsynchronized key ring buffer access between IRQ handler and userland polling tasks. **Fix**: Added `key_buf_lock` spinlock. |
+| 3 | Screen / UART Driver | `kernel/modules/drivers/screen.c` | Concurrent writes to UART serial port and screen buffer garbled output. **Fix**: Added `screen_lock` spinlock. |
+| 4 | Task Reaping | `kernel/core/task.c` | `wait_for_children()` restricted zombie matching by CPU ID, locking up parent tasks waiting for children that executed on APs. **Fix**: Reverted to standard `TASK_ZOMBIE` check. |
+| 5 | Scheduler Wait Loop | `kernel/core/task.c`, `user/sh/sh.c` | `wait_for_all_children()` executed a tight CPU-starving busy loop. **Fix**: Added `hlt` yield between iterations. |
+
+**Verification:**
+Executed 21 core kernel test phases and interactive userland tests (`ls`, `echo`, `cat`, `sysinfo`, `pwd`) across two consecutive full boot-to-shutdown sessions under `-smp 4`.
+
+**Lesson:**
+Global pointer variables (like page directory references) inherited from UP design are silent SMP hazards. Every task state reference during exception/interrupt handling must be fetched from per-CPU context (`cpu_local_t`).
+

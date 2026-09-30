@@ -1233,14 +1233,12 @@ void schedule(registers_t *regs) {
 int wait_for_children() {
     task_t *self = (task_t*)current_task;
     int last_status = 0;
-    if (kabi_debug_enabled()) {
-    }
 
     while (1) {
         uintptr_t f = irq_save();
         
-        // maybe we have a race condition preventing shell from resuming
-        // on task end??
+        /* SMP-safe: acquire rq_lock before scanning ready_queue. */
+        spin_lock(&rq_lock);
         int active_children = 0;
         int zombies = 0;
         task_t *task = (task_t*)ready_queue;
@@ -1258,9 +1256,9 @@ int wait_for_children() {
                 task = task->next;
             } while (task != start && task != 0);
         }
+        spin_unlock(&rq_lock);
 
         if (active_children == 0 && zombies == 0) {
-            if (kabi_debug_enabled()) kprint("[WAIT] No children left, returning.\n");
             irq_restore(f);
             return last_status;
         }
@@ -1268,10 +1266,6 @@ int wait_for_children() {
         if (zombies > 0) {
             irq_restore(f);
             reap_zombies();
-            if (kabi_debug_enabled()) {
-                char s[16]; int_to_ascii(last_status, s);
-                kprint("[WAIT] Zombie reaped, returning status: "); kprint(s); kprint("\n");
-            }
             return last_status;
         }
 
@@ -1280,7 +1274,60 @@ int wait_for_children() {
         irq_restore(f);
         
         while (self->state == TASK_WAITING) {
-            // Save and restore irq_depth across the blocking wait
+            uint32_t saved_depth = irq_depth;
+            irq_depth = 0;
+            asm volatile("sti; hlt; cli");
+            irq_depth = saved_depth;
+        }
+    }
+}
+
+/*
+ * wait_for_all_children: blocks until ALL children have exited.
+ *
+ * Unlike wait_for_children() (POSIX wait — returns after any one child),
+ * this loops until no active children remain.
+ *
+ * To avoid busy-looping when stale zombies can't be reaped immediately
+ * (cpu_id != -1 on SMP), we yield (hlt) between iterations so the
+ * zombie's CPU has time to context-switch and release it.
+ */
+int wait_for_all_children() {
+    task_t *self = (task_t*)current_task;
+    int last_status = 0;
+
+    while (1) {
+        /* Drain one zombie (or block until a child exits) */
+        last_status = wait_for_children();
+
+        /* Check if we still have active (non-zombie) children */
+        uintptr_t f = irq_save();
+        spin_lock(&rq_lock);
+        int has_active = 0;
+        task_t *task = (task_t*)ready_queue;
+        if (task) {
+            task_t *start = task;
+            do {
+                if (task->parent == self && task->state != TASK_ZOMBIE) {
+                    has_active = 1;
+                    break;
+                }
+                task = task->next;
+            } while (task != start && task != 0);
+        }
+        spin_unlock(&rq_lock);
+        irq_restore(f);
+
+        if (!has_active) {
+            /* Final cleanup: drain any remaining zombies */
+            reap_zombies();
+            return last_status;
+        }
+
+        /* Yield before looping — prevents tight busy-loop when
+         * wait_for_children() returns immediately due to an
+         * un-reapable zombie (cpu_id != -1 on SMP).           */
+        {
             uint32_t saved_depth = irq_depth;
             irq_depth = 0;
             asm volatile("sti; hlt; cli");

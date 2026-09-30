@@ -33,8 +33,8 @@ todos:
     content: Implement Symmetric Multi-Processing support; ACPI MADT parsing, LAPIC/IOAPIC configuration, SIPI trampoline, and per-CPU GS_BASE storage.
     status: completed
   - id: production-smp-readiness
-    content: Harden SMP implementation with TLB shootdowns and cross-CPU scheduling IPIs.
-    status: pending
+    content: Harden SMP implementation with per-CPU page directory isolation, driver spinlocks, zombie reaping yield fixes, and full 4-core userland stabilization.
+    status: completed
 isProject: false
 ---
 

@@ -154,6 +154,7 @@ void kill(int pid);
 /* Kills all child processes (PID > 1). */
 void kill_all_children();
 int wait_for_children();
+int wait_for_all_children();
 void reap_zombies();
 
 /* Signal-based kill helpers */
