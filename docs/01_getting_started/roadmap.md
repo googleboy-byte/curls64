@@ -25,7 +25,7 @@ Curls OS is developed in phases, focusing on building a rock-solid core before e
 - [x] **Yield-Based Zombie Reaping**: Reverted CPU-filtering restriction in `wait_for_children()` and added `hlt` yield in `wait_for_all_children()` loop to eliminate CPU starvation during process cleanup.
 - [x] **Hardware Memory Barriers**: `mfence` in task switching, signal delivery, and AP synchronization for TCG/emulator compatibility.
 - [x] **Null-Resilient Libc**: `strlen`, `execve` argument processing hardened against null pointer dereference during SMP race windows.
-- [x] **Docker/TCG & 4-Core Verified**: Full core test suite (21 phases), module tests, and interactive user shell (`sh64`) verified across 4 cores (`-smp 4`).
+- [x] **Docker/TCG & 4-Core Verified**: Full core test suite (23 phases), module tests, and interactive user shell (`sh64`) verified across 4 cores (`-smp 4`).
 
 ## Phase 4: Performance & Optimization (Upcoming)
 - [ ] **Fast Syscalls**: Transition from `int 0x80` to `syscall/sysret` for x86_64.
@@ -34,7 +34,9 @@ Curls OS is developed in phases, focusing on building a rock-solid core before e
 
 ## Phase 5: Production SMP & Advanced Concurrency (In Progress 🚧)
 - [x] **Multi-Core MMU & Driver Concurrency**: Per-CPU page tables, driver spinlocks, non-blocking zombie wait loops.
-- [ ] **TLB Shootdowns**: Explicit memory consistency across cores on page table changes.
+- [x] **TLB Shootdowns**: Explicit memory consistency across cores on page table changes (Phase 21 — live `invlpg` + CR3-aware filtering verified).
+- [x] **AP Stall Root Cause Fixed**: Kernel-mode fork inherited IF=0 from interrupt-gate `int $0x80`; `sys_fork` now sanitizes child RFLAGS (forces IF, clears TF/NT/IOPL). Phase 22 regression gate added.
+- [x] **AP Liveness Gate**: Phase 23 verifies all online CPUs advance timer_ticks over a 500ms window on every boot.
 - [ ] **Scheduling IPIs**: Cross-core task migration via inter-processor interrupts.
 - [ ] **Advanced Scheduling**: Multi-queue scheduler with load balancing.
 - [ ] **Cache Hardening**: Explicit management of shared data consistency.

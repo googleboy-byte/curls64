@@ -30,3 +30,12 @@ static inline cpu_local_t *get_cpu_local(void) {
 #define current_task      (get_cpu_local()->_current)
 #define irq_depth         (get_cpu_local()->_irq_depth)
 #define current_directory (get_cpu_local()->_current_directory)
+
+// ASSERT_IF: bisect IF=0 root cause. Logs if RFLAGS.IF is clear.
+#define ASSERT_IF(tag) do { \
+    uint64_t _af; \
+    asm volatile("pushfq; pop %0" : "=r"(_af)); \
+    if (!(_af & 0x200)) { \
+        kprint("[ASSERT_IF] IF=0 at " tag "\n"); \
+    } \
+} while(0)

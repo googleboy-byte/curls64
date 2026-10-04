@@ -22,7 +22,7 @@ volatile task_t *sleep_queue = 0;
 
 #include <spinlock.h>
 static spinlock_t pid_lock = SPINLOCK_INIT;
-static spinlock_t rq_lock = SPINLOCK_INIT;
+spinlock_t rq_lock = SPINLOCK_INIT;
 spinlock_t sq_lock = SPINLOCK_INIT;
 
 static task_t *cpu_idle_tasks[MAX_CPU] = {0};
@@ -517,6 +517,24 @@ int sys_fork(registers_t *regs) {
 #endif
     }
 
+    // PHASE 4.2: Sanitize child RFLAGS.
+    // A kernel-mode fork via int $0x80 (interrupt gate) clears IF.
+    // Also clear TF (single-step), NT (nested task), and IOPL.
+#ifdef ARCH_X86_64
+    if (kabi_debug_enabled() && !(child_regs->rflags & 0x200)) {
+        char _fb[16];
+        kprint("[FORK] WARN: child PID ");
+        int_to_ascii(child->id, _fb); kprint(_fb);
+        kprint(" inherited IF=0\n");
+    }
+    child_regs->rflags = (child_regs->rflags | 0x202) & ~(0x100 | 0x4000 | 0x3000);
+#else
+    if (kabi_debug_enabled() && !(child_regs->eflags & 0x200)) {
+        kprint("[FORK] WARN: child inherited IF=0\n");
+    }
+    child_regs->eflags = (child_regs->eflags | 0x202) & ~(0x100 | 0x4000 | 0x3000);
+#endif
+
     // PHASE 4.1: Parent-Relative EBP Chain Fixup
     virt_addr_t src_stack_base = parent->kernel_stack_base;
     if (src_stack_top == cpu->kstack_top) src_stack_base = cpu->kstack_base;
@@ -1006,6 +1024,7 @@ void reap_zombies() {
     for (int i = 0; i < reap_count; i++) {
         task_t *to_free = to_reap[i];
 
+
         if (to_free->kernel_stack_base) {
             kfree((void*)to_free->kernel_stack_base);
         }
@@ -1051,7 +1070,7 @@ void kill_foreground_processes() {
 
 
 void task_switch(registers_t *regs) {
-    if (!current_task) return;  // AP not yet assigned a task
+    if (!current_task) return;
     asm volatile("mfence" ::: "memory");
     if (!ready_queue) return;
 
@@ -1106,6 +1125,14 @@ void task_switch(registers_t *regs) {
     // Phase 2: Selection of the incoming task
     spin_lock(&rq_lock);
 
+    // H2 deferred clear: now safe to release the previous task's cpu_id,
+    // because the ISR stub has fully transitioned to the current stack.
+    cpu_local_t *me = get_cpu_local();
+    if (me->_previous_task) {
+        me->_previous_task->cpu_id = -1;
+        me->_previous_task = NULL;
+    }
+
     if (prev_task->state == TASK_RUNNING) {
         prev_task->state = TASK_READY;
     }
@@ -1156,7 +1183,8 @@ void task_switch(registers_t *regs) {
     }
 
     // Phase 3: Transition to the incoming task
-    prev_task->cpu_id = -1;
+    // Defer cpu_id clear to next task_switch (H2: prev stack still in use)
+    get_cpu_local()->_previous_task = prev_task;
     current_task = next_task;
     current_task->state = TASK_RUNNING;
     current_task->cpu_id = (int32_t)get_cpu_local()->id;

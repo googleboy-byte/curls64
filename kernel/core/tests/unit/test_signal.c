@@ -545,16 +545,27 @@ static void test_handler_frame_mutation_32bit_compat() {
 /* ------------------------------------------------------------------ */
 void run_signal_tests() {
     kprint("\n=== Signal System Test Suite ===\n");
+    ASSERT_IF("sig_suite_entry");
     test_sigkill_uncatchable();
+    ASSERT_IF("after_T1");
     test_sigkill_no_pending_bit();
+    ASSERT_IF("after_T2");
     test_sigterm_default();
+    ASSERT_IF("after_T3");
     test_sigchld_delivery();
+    ASSERT_IF("after_T4");
     test_signal_coalescing();
+    ASSERT_IF("after_T5");
     test_sigkill_kernel_task();
+    ASSERT_IF("after_T6");
     test_reentrancy_guard();
+    ASSERT_IF("after_T7");
     test_handler_frame_mutation();
+    ASSERT_IF("after_T8");
 #ifdef ARCH_X86_64
     test_handler_frame_mutation_32bit_compat();
+    ASSERT_IF("after_T8b");
 #endif
     kprint("=== Signal Tests Complete ===\n");
+    ASSERT_IF("sig_suite_exit");
 }

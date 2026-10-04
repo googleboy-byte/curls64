@@ -296,3 +296,46 @@ Option 2 — `hlt` yield between loop iterations.
 **Rationale:**
 Option 1 starves other cores and wastes power. Option 3 requires extending the scheduler event notification architecture for zombie reaping. Option 2 cleanly halts the waiting CPU until the next timer or interrupt fires, providing responsive process cleanup without CPU starvation.
 
+
+---
+
+## RFLAGS sanitization in `sys_fork` for kernel-mode children
+*(2026-10-04)*
+
+**Context:**
+`int $0x80` is dispatched through an IDT interrupt-gate entry. The x86 interrupt-gate mechanism atomically clears IF (bit 9) in the RFLAGS saved on the kernel stack. `sys_fork` copied the parent's interrupt frame verbatim to the child's kernel stack. A kernel-mode child running `for(;;) { hlt; }` with IF=0 in its saved RFLAGS permanently halted its CPU — no timer interrupt could wake it. Confirmed at runtime: RFLAGS=0x6 on every kernel-mode fork (PIDs 4–8, 10).
+
+**Options considered:**
+1. Set only IF (`rflags |= 0x200`) — minimal fix
+2. Full sanitization: force IF + reserved bit, clear TF/NT/IOPL (`(rflags | 0x202) & ~(0x100 | 0x4000 | 0x3000)`)
+3. Require callers to ensure IF=1 before `int $0x80`
+
+**Decision:**
+Option 2 — full sanitization in `sys_fork` (`task.c` Phase 4.2).
+
+**Rationale:**
+Option 1 fixes the stall but leaves TF and NT inheritable. A child inheriting TF generates a debug exception on every instruction; NT causes `iret` to attempt a task-switch. Both are latent bugs. IOPL should always be 0 for ring-0 children. Option 3 puts the burden on every call site — fragile since any `int $0x80` from a CLI/irq_save context silently produces a broken child. Sanitizing in `sys_fork` is the single authoritative fix point. A `kabi_debug_enabled()` warning logs when IF was 0, preserving caller visibility.
+
+**Code:** `task.c` PHASE 4.2:
+```c
+child_regs->rflags = (child_regs->rflags | 0x202) & ~(0x100 | 0x4000 | 0x3000);
+```
+
+---
+
+## Deferred `cpu_id` clear via `_previous_task` in `task_switch` (H2)
+*(2026-10-04)*
+
+**Context:**
+`task_switch` Phase 3 set `prev_task->cpu_id = -1` and then released `rq_lock`, while the CPU's RSP still pointed into `prev_task`'s kernel stack. Between that unlock and the ISR stub's stack swap, `reap_zombies` on another CPU could see `cpu_id == -1`, free `kernel_stack_base`, and corrupt the live stack. The race window was confirmed in the code; a runtime race detector never fired (the AP stall was caused by the IF=0 bug, not H2).
+
+**Options considered:**
+1. Hold `rq_lock` across the entire ISR epilogue
+2. Defer clear to Phase 3 of the *next* `task_switch`
+3. Defer clear to Phase 2 of the *next* `task_switch` (after `spin_lock`, before scheduler selection)
+
+**Decision:**
+Option 3 — clear at Phase 2 entry via `_previous_task` in `cpu_local_t`.
+
+**Rationale:**
+Option 1 serialises all CPUs on every timer tick. Option 2 misses idle CPUs that take the "same task" early return (they never reach Phase 3), leaving a zombie in `_previous_task` indefinitely and blocking the reaper. Option 3 runs unconditionally every tick on every CPU. Side effect: a preempted task is immobile for up to one tick (~20ms at 50Hz) — acceptable. `_previous_task` is placed after `_current_directory` in `cpu_local_t` so it does not shift `_task_switch_rsp` off hardcoded offset 40 used by `interrupt64.asm`.

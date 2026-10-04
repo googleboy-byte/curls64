@@ -53,3 +53,33 @@ Executed 21 core kernel test phases and interactive userland tests (`ls`, `echo`
 **Lesson:**
 Global pointer variables (like page directory references) inherited from UP design are silent SMP hazards. Every task state reference during exception/interrupt handling must be fetched from per-CPU context (`cpu_local_t`).
 
+
+---
+
+## 2026-10-04 · SMP AP Stall — Kernel-mode fork inherits IF=0
+
+**Severity:** CRITICAL — Caused one AP to permanently stall per boot under `-smp 4`. Non-deterministic victim CPU; always PID 4 (first signal-test child).
+
+**Root cause:**
+`sys_fork` copied the parent's interrupt frame to the child's kernel stack without sanitizing RFLAGS. The `int $0x80` interrupt-gate entry clears IF in saved RFLAGS. A kernel-mode child with IF=0 in its frame that executed `for(;;) { hlt; }` permanently halted the CPU — timer interrupts never fired to wake it.
+
+Confirmed by `[FORK] WARN: child PID N inherited IF=0` appearing for every kernel-mode fork (PIDs 4, 5, 6, 7, 8, 10) with RFLAGS=0x6.
+
+**Fix:**
+Sanitize child RFLAGS in `sys_fork` Phase 4.2 (`task.c`):
+```c
+child_regs->rflags = (child_regs->rflags | 0x202) & ~(0x100 | 0x4000 | 0x3000);
+```
+Forces IF + reserved bit; clears TF, NT, IOPL.
+
+**Additional changes:**
+- `_stall_code` diagnostic field removed from `cpu_local_t`; replaced by `_previous_task` for deferred cpu_id clear (H2 race defence).
+- `ASSERT_IF(tag)` macro added to `cpu_local.h`; placed between every signal test to bisect which test leaves IF=0.
+- Core test phases expanded from 21 to 23: Phase 22 (fork RFLAGS regression gate), Phase 23 (AP liveness gate — all CPUs must tick over 500ms window).
+
+**Verification:**
+All 4 CPUs showed delta >= 24 ticks over 500ms probe. DIAG: CPU 1/2/3 all `ok`, no ZOMBIE-TASK, no STUCK-IN-IRQ.
+
+**Open:** IF=0 root cause (which caller path runs with interrupts off) not yet identified. ASSERT_IF probes are in place for next boot.
+
+**Lesson:** An interrupt-gate `int` instruction clears IF in saved RFLAGS. Any kernel-mode fork must sanitize the child frame — the parent's RFLAGS at `int $0x80` time is unpredictable. `hlt` with IF=0 is a permanent CPU halt; no trap or panic results.

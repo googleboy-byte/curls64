@@ -89,11 +89,16 @@ typedef struct cpu_local{
 
     // irq / nesting state
     uint32_t _irq_depth;
-    volatile uint64_t _task_switch_rsp; // ADD THIS
+    volatile uint64_t _task_switch_rsp; // offset 40 — must match CPU_LOCAL_TASK_SWITCH_RSP in interrupt64.asm
     volatile uint64_t timer_ticks;
 
     // per-CPU active page directory (SMP-safe replacement for global)
     page_directory_t *_current_directory;
+
+    // Deferred cpu_id clear (H2): the task we switched away from last tick.
+    // Its cpu_id is cleared at the START of the next task_switch, after the
+    // ISR stub has fully transitioned to the new stack.
+    task_t *_previous_task;
 
 #ifdef ARCH_X86_64
     tss64_entry_t tss;

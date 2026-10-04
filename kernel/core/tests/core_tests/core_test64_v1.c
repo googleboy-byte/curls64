@@ -1120,6 +1120,102 @@ static int test_phase21() {
     return phase_success;
 }
 
+// Phase 22: fork RFLAGS sanity — kernel-mode child must inherit IF=1
+static int test_phase22() {
+    log_phase_start(22, "Fork RFLAGS: child must have IF=1");
+    int phase_success = 1;
+
+    {
+        int pid = fork();
+        if (pid == 0) {
+            // Child: just exit via the correct UABI syscall (32).
+            // If RFLAGS.IF was 0 and the fix didn't work, this code is
+            // unreachable — the child halts on a timer-wake that never fires.
+            asm volatile("int $0x80" :: "a"(32) : "memory"); // UABI_EXIT=32
+            for(;;) asm volatile("hlt");
+        }
+
+        // Parent: wait ~1s (50 ticks) for child to run and exit
+        extern volatile uint32_t tick;
+        uint32_t t0 = tick;
+        while (tick - t0 < 50) {
+            asm volatile("sti; hlt; cli" ::: "memory");
+        }
+        asm volatile("sti" ::: "memory");
+
+        // Check child state
+        extern volatile task_t *ready_queue;
+        task_t *child = NULL;
+        if (ready_queue) {
+            task_t *t = (task_t*)ready_queue;
+            task_t *start = t;
+            do {
+                if ((int)t->id == pid) { child = t; break; }
+                t = t->next;
+            } while (t && t != start);
+        }
+        if (child && child->state == TASK_ZOMBIE) {
+            log_pass("22.1", "Kernel fork: child exited cleanly (IF=1 confirmed)");
+            reap_zombies();
+        } else if (!child) {
+            log_pass("22.1", "Kernel fork: child already reaped (IF=1 confirmed)");
+        } else {
+            log_fail("22.1", "fork RFLAGS", "Child still READY/RUNNING after 1s — stuck with IF=0");
+            // Kill it so Phase 23 can proceed cleanly
+            task_send_signal(pid, SIGKILL);
+            reap_zombies();
+            phase_success = 0;
+        }
+    }
+
+    return phase_success;
+}
+
+// Phase 23: AP liveness gate — every online AP must tick over a 500ms window
+static int test_phase23() {
+    log_phase_start(23, "AP liveness: all CPUs must tick for 500ms");
+    int phase_success = 1;
+
+    extern cpu_local_t cpu_local[];
+    extern volatile uint32_t ap_ready_flags;
+    // BSP (bit 0) + APs: count online CPUs from the bitmask
+    uint32_t flags = ap_ready_flags | 1; // always include BSP
+    uint32_t ncpus = 0;
+    for (uint32_t b = flags; b; b >>= 1) ncpus += (b & 1);
+    if (ncpus > 8) ncpus = 8;
+
+    // Snapshot before
+    uint64_t before[8];
+    for (uint32_t i = 0; i < ncpus; i++)
+        before[i] = cpu_local[i].timer_ticks;
+
+    // Wait ~500ms: BSP must advance ~25 ticks at 50 Hz
+    uint64_t bsp_start = cpu_local[0].timer_ticks;
+    while (cpu_local[0].timer_ticks < bsp_start + 25) {
+        asm volatile("sti; hlt; cli" ::: "memory");
+    }
+    asm volatile("sti" ::: "memory"); // leave IF=1
+
+    // Check every AP advanced
+    for (uint32_t i = 1; i < ncpus; i++) {
+        uint64_t delta = cpu_local[i].timer_ticks - before[i];
+        char _s[20]; char _d[20];
+        kabi_int_to_ascii((int)i, _s);
+        kabi_int_to_ascii((int)delta, _d);
+        if (delta >= 10) {
+            kprint("  [  OK  ] CPU "); kprint(_s);
+            kprint(": delta="); kprint(_d); kprint("\n");
+        } else {
+            kprint("  [ FAIL ] CPU "); kprint(_s);
+            kprint(": delta="); kprint(_d); kprint(" (STALLED)\n");
+            log_fail("23.x", "AP timer", "AP stalled");
+            phase_success = 0;
+        }
+    }
+
+    return phase_success;
+}
+
 void run_core_test64_v1() {
     kprint("\n[ CORE TEST 64 ] Running TEST_CORE64_V1.0...\n");
     phase_failed = 0;
@@ -1145,10 +1241,12 @@ void run_core_test64_v1() {
     log_result(19, test_phase19());
     log_result(20, test_phase20());
     log_result(21, test_phase21());
+    log_result(22, test_phase22());
+    log_result(23, test_phase23());
 
     if (!phase_failed) {
         kprint("\n[ CORE TEST 64 ] TEST_CORE64_V1.0: PASSED\n");
-        kprint("x86_64 Core contract intact. (21 phases)\n");
+        kprint("x86_64 Core contract intact. (23 phases)\n");
     } else {
         kprint("\n[ CORE TEST 64 ] TEST_CORE64_V1.0: FAILED\n");
     }

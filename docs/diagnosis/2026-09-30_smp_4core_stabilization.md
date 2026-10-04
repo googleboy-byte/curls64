@@ -24,7 +24,7 @@ Through systematic CPU execution tracing, memory analysis, and driver audits, fi
 
 The fixed kernel was validated across two full consecutive boot-to-shutdown runs under QEMU `-smp 4`:
 
-- **All 21 Core Test Phases**: Passed 100% cleanly.
+- **All 21 Core Test Phases**: Passed 100% cleanly (suite subsequently expanded to 23 phases as of 2026-10-04).
 - **Module Suite**: Initialized without warnings or memory faults.
 - **Interactive Shell (`sh64`)**: Executed `ls`, `echo`, `cat`, `sysinfo`, `pwd` repeatedly with prompt returns.
 

@@ -2,6 +2,7 @@
 #include "../../../include/module/module_abi_v1.h"
 #include "../../../libc/mem.h"
 #include <cpu_local.h>
+#include <spinlock.h>
 
 // Shell doesn't need core headers anymore!
 // We'll use K-ABI functions only.
@@ -85,7 +86,7 @@ void shell_user_input(char *input) {
 
     if (strcmp(cmd, "HELP") == 0) {
         kprint("Curls OS K-ABI Shell\n"
-               "Commands: \nHELP, \nCLEAR, \nDEVS, \nIDETEST, \nFATWRITE <path>, \nMOUNT <dev> <path>, \nLS <path>, \nCAT <path>, \nPS, \nMEM, \nTOP, \nMEMSTAT, \nPSV, \nTEST, \nSTRESS, \nCORE, \nUSER, \nKILL <pid>, \nTERM <pid>, \nDEBUG <ON/OFF>, \nEND, \nREBOOT\n");
+               "Commands: \nHELP, \nCLEAR, \nDEVS, \nIDETEST, \nFATWRITE <path>, \nMOUNT <dev> <path>, \nLS <path>, \nCAT <path>, \nPS, \nMEM, \nTOP, \nMEMSTAT, \nPSV, \nTEST, \nSTRESS, \nCORE, \nUSER, \nKILL <pid>, \nTERM <pid>, \nDIAG, \nDEBUG <ON/OFF>, \nEND, \nREBOOT\n");
     } else if (strcmp(cmd, "DEBUG") == 0) {
         if (argc < 2) {
             kprint("DEBUG is "); kprint(kabi_debug_enabled() ? "ON\n" : "OFF\n");
@@ -357,6 +358,178 @@ void shell_user_input(char *input) {
         if (kabi_task_signal(pid, KABI_SIGNAL_TERM) < 0) {
             kprint("Permission denied or termination failed.\n");
         }
+    } else if (strcmp(cmd, "DIAG") == 0) {
+        /* ===== AP-Stall & SMP Audit Diagnostic ===== */
+        extern uint32_t tick;
+        extern uint32_t next_pid;
+        extern int smp_tasking_ready;
+        char _s[32];
+
+        kprint("\n========== SMP AUDIT DIAGNOSTIC v2 ==========\n");
+
+        /* ============================================
+         * SECTION 1: Per-CPU Heartbeat & State
+         * ============================================ */
+        kprint("\n[AP-STALL] Per-CPU State Dump\n");
+        kprint("  CPU  timer_ticks   PID   irq_depth  tss_rsp  status\n");
+        kprint("  ---  -----------   ---   ---------  -------  ------\n");
+
+        int ncpus = 0;
+        for (int i = 0; i < 8; i++) {
+            if (i == 0 || cpu_local[i].kstack_top != 0) ncpus++;
+            else break;
+        }
+
+        /* Sample 1: record timer_ticks */
+        uint64_t sample1[8];
+        for (int i = 0; i < ncpus; i++) sample1[i] = cpu_local[i].timer_ticks;
+
+        for (int i = 0; i < ncpus; i++) {
+            kprint("    "); kabi_int_to_ascii(i, _s); kprint(_s);
+            kprint("    ");
+            kabi_int_to_ascii((int)cpu_local[i].timer_ticks, _s); kprint(_s);
+
+            /* Current task PID */
+            task_t *ct = cpu_local[i]._current;
+            kprint("         ");
+            if (ct) { kabi_int_to_ascii(ct->id, _s); kprint(_s); }
+            else kprint("NULL");
+
+            /* irq_depth */
+            kprint("     ");
+            kabi_int_to_ascii(cpu_local[i]._irq_depth, _s); kprint(_s);
+
+            /* task_switch_rsp */
+            kprint("          ");
+            if (cpu_local[i]._task_switch_rsp) kprint("set");
+            else kprint("0");
+
+            /* Status */
+            kprint("    ");
+            if (i == 0) { kprint("BSP"); }
+            else if (cpu_local[i]._irq_depth > 0) { kprint("STUCK-IN-IRQ"); }
+            else if (ct && ct->state == TASK_ZOMBIE) { kprint("ZOMBIE-TASK"); }
+            else { kprint("ok"); }
+            kprint("\n");
+        }
+
+        /* Sample 2: wait ~500ms on BSP, re-sample */
+        kprint("\n[AP-STALL] Liveness probe (waiting ~500ms)...\n");
+        {
+            uint64_t bsp_start = cpu_local[0].timer_ticks;
+            volatile uint32_t *irq_d = &(get_cpu_local()->_irq_depth);
+            uint32_t saved_depth = *irq_d;
+            *irq_d = 0;
+            /* Wait for BSP to tick 25 times (~500ms at 50 Hz) */
+            while (cpu_local[0].timer_ticks < bsp_start + 25) {
+                asm volatile("sti; hlt; cli");
+            }
+            *irq_d = saved_depth;
+        }
+
+        uint64_t sample2[8];
+        for (int i = 0; i < ncpus; i++) sample2[i] = cpu_local[i].timer_ticks;
+
+        int stalled_count = 0;
+        for (int i = 0; i < ncpus; i++) {
+            uint64_t delta = sample2[i] - sample1[i];
+            kprint("  CPU "); kabi_int_to_ascii(i, _s); kprint(_s);
+            kprint(": delta="); kabi_int_to_ascii((int)delta, _s); kprint(_s);
+            if (i == 0) {
+                kprint(" (BSP, expected ~25)");
+            } else if (delta == 0) {
+                kprint(" >> STALLED: no timer interrupts in 500ms");
+                stalled_count++;
+            } else if (delta < 10) {
+                kprint(" >> SLOW: barely ticking");
+            } else {
+                kprint(" (OK)");
+            }
+            kprint("\n");
+        }
+
+        if (stalled_count > 0) {
+            kprint("\n  >> "); kabi_int_to_ascii(stalled_count, _s); kprint(_s);
+            kprint(" AP(s) STALLED. Possible causes:\n");
+            kprint("     - Deadlock on rq_lock, sq_lock, kprint_lock, or heap_lock\n");
+            kprint("     - Silent panic (kprint_lock held -> panic never printed)\n");
+            kprint("     - LAPIC timer stopped or never configured\n");
+            kprint("     - Wedged in task_switch spin or irq_depth > 1 rejection\n");
+        }
+
+        /* ============================================
+         * SECTION 2: Spinlock State
+         * ============================================ */
+        kprint("\n[LOCKS] Spinlock Contention Check\n");
+        {
+            extern volatile uint32_t rq_lock;
+            extern volatile uint32_t sq_lock;
+            extern volatile uint32_t kprint_lock;
+
+            kprint("  rq_lock:     ");
+            kprint(rq_lock ? "LOCKED  << AP may be spinning here" : "free");
+            kprint("\n  sq_lock:     ");
+            kprint(sq_lock ? "LOCKED  << timer_callback contention" : "free");
+            kprint("\n  kprint_lock: ");
+            kprint(kprint_lock ? "LOCKED  (expected: we hold it to print)" : "free (unexpected)");
+            kprint("\n");
+            kprint("  pmm_lock, heap_lock, pid_lock, pgtable_lock: static, not readable\n");
+            kprint("  >> Also check serial log for 'KERNEL PANIC' or 'EXCESSIVE IRQ'\n");
+        }
+
+        /* ============================================
+         * SECTION 3: Timer frequency audit
+         * ============================================ */
+        kprint("\n[TIMER] Frequency Audit\n");
+        kprint("  PIT init_timer() called with: 50 Hz\n");
+        kprint("  UABI_SLEEP comment says:      100 Hz\n");
+        kprint("  UABI_SLEEP formula: ticks = (ms + 9) / 10\n");
+        kprint("  Correct formula at 50 Hz: ticks = (ms * 50 + 999) / 1000\n");
+        kprint("  >> BUG: sleep durations are ~2x too short even with BSP-only tick\n");
+
+        /* ============================================
+         * SECTION 4: H4 tick drift
+         * ============================================ */
+        kprint("\n[H4] Tick Drift\n");
+        kprint("  Global tick: "); kabi_int_to_ascii(tick, _s); kprint(_s); kprint("\n");
+        if (cpu_local[0].timer_ticks > 0) {
+            int ratio = (int)(tick / (uint32_t)cpu_local[0].timer_ticks);
+            kprint("  BSP ticks:   "); kabi_int_to_ascii((int)cpu_local[0].timer_ticks, _s); kprint(_s); kprint("\n");
+            kprint("  Ratio:       ~"); kabi_int_to_ascii(ratio, _s); kprint(_s);
+            kprint("x (should be 1x)\n");
+        }
+
+        /* ============================================
+         * SECTION 5: Existing checks
+         * ============================================ */
+        kprint("\n[H6] PID Space\n");
+        kprint("  next_pid="); kabi_int_to_ascii(next_pid, _s); kprint(_s);
+        kprint("  MAX_TASKS=128  remaining=");
+        int remaining = 128 - (int)next_pid;
+        kabi_int_to_ascii(remaining < 0 ? 0 : remaining, _s); kprint(_s); kprint("\n");
+
+        kprint("\n[M7] PMM Frame Snapshot\n");
+        {
+            kabi_pmm_stats_t pmm;
+            kabi_get_pmm_stats(&pmm);
+            kprint("  Used="); kabi_int_to_ascii(pmm.used_frames, _s); kprint(_s);
+            kprint("  Free="); kabi_int_to_ascii(pmm.free_frames, _s); kprint(_s);
+            kprint("  Total="); kabi_int_to_ascii(pmm.total_frames, _s); kprint(_s);
+            kprint("\n");
+        }
+
+        kprint("\n[M9] KILL/TERM: ");
+        {
+            char t1[] = "KILL 5";
+            int pre = startsWith(t1, "KILL ");
+            char *tp = t1;
+            while (*tp) { if (*tp == ' ') { *tp = '\0'; break; } tp++; }
+            int post = startsWith(t1, "KILL ");
+            kprint(pre && !post ? "BUG CONFIRMED\n" : "OK\n");
+        }
+
+        kprint("\n========== END DIAGNOSTIC v2 ==========\n\n");
+
     } else if (strcmp(input, "REBOOT") == 0) {
         kabi_request_reboot(REBOOT_REASON_ADMIN);
     } else {

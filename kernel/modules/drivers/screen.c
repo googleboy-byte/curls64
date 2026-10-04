@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <spinlock.h>
 
-static spinlock_t kprint_lock = SPINLOCK_INIT;
+spinlock_t kprint_lock = SPINLOCK_INIT;
 
 /* Declaration of private functions */
 int get_cursor_offset();
